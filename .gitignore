@@ -1,0 +1,9 @@
+/out
+
+*.lib
+*.obj
+*.pdb
+*.rdi
+*.o
+*.a
+*.exe
