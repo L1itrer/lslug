@@ -570,9 +570,13 @@ Vec2 allocate_bands(Slug_Font* font, Int_Array* bnd_horiz, Int_Array* bnd_vert, 
         // and store it in the texture
         for (size_t i = 0;i < curr_bnd->count;++i)
         {
-            int32_t idx = curr_bnd->items[i];
-            int16_t curve_y = idx / TEXEL_WIDTH;
-            int16_t curve_x = idx - curve_y * TEXEL_WIDTH;
+            int32_t idx_in_curve_texture = curr_bnd->items[i];
+            int16_t curve_y = idx_in_curve_texture / TEXEL_WIDTH;
+            int16_t curve_x = idx_in_curve_texture - curve_y * TEXEL_WIDTH;
+            if (j == 4)
+            {
+                printf("curve = (%d,%d)\n", curve_x, curve_y);
+            }
 
             bnd->items[block_idx].bc[x_idx+i].x = curve_x;
             bnd->items[block_idx].bc[x_idx+i].y = curve_y;
@@ -692,8 +696,8 @@ bool process_codepoint(Slug_Font* font, stbtt_fontinfo* info, int32_t codepoint,
     // sort the bands by descending x or y
     for (int i = 0;i < bands_count;++i)
     {
-        merge_sort(bnd_horiz[i].items, bnd_horiz[i].count, sizeof(bnd_horiz[i].items[0]), compare_band_by_x, font);
-        merge_sort(bnd_vert[i].items, bnd_vert[i].count, sizeof(bnd_vert[i].items[0]), compare_band_by_y, font);
+        // merge_sort(bnd_horiz[i].items, bnd_horiz[i].count, sizeof(bnd_horiz[i].items[0]), compare_band_by_x, font);
+        // merge_sort(bnd_vert[i].items, bnd_vert[i].count, sizeof(bnd_vert[i].items[0]), compare_band_by_y, font);
     }
 
     Vec2 band_loc = allocate_bands(font, bnd_horiz, bnd_vert, bands_count);
@@ -735,7 +739,8 @@ typedef RasterSomething(Raster_Something_Proc);
                                                                                         \
         int to_add = 0;                                                                 \
         if (!is_horizontal) to_add = max_bands;                                         \
-        Band_Component bc = font->band.items[y].bc[x+j+to_add];                         \
+        int32_t iter = j + to_add;\
+        Band_Component bc = font->band.items[y].bc[x+iter];                         \
         if (is_horizontal)                                                              \
         {                                                                               \
             int glyph_h = (int)(gl->bbox.y2 - gl->bbox.y1);                             \
@@ -751,10 +756,12 @@ typedef RasterSomething(Raster_Something_Proc);
             DrawRectangle(band_x, PADDING_Y, band_w, size.y - PADDING_Y*2, band_color); \
         }                                                                               \
                                                                                         \
-        Vec2 b_loc = offset_to_abs((Vec2){x, y}, bc.offset, TEXEL_WIDTH);               \
+        Vec2 b_loc = offset_to_abs((Vec2){x+iter, y}, bc.offset, TEXEL_WIDTH);               \
         for (int16_t i = 0;i < bc.length;++i)                                           \
         {                                                                               \
             Band_Component c_loc = font->band.items[b_loc.y].bc[b_loc.x+i];             \
+            if (is_horizontal && j == 4)\
+            printf("---curve = (%d,%d)\n", c_loc.x, c_loc.y);\
             Curve_Component cc1 = font->curves.items[c_loc.y * TEXEL_WIDTH + c_loc.x];  \
             Curve_Component cc2 = font->curves.items[c_loc.y * TEXEL_WIDTH + c_loc.x+1];\
                                                                                         \
@@ -812,6 +819,48 @@ Image raster_vertical_bands(Slug_Font* font, Glyph* gl, Vector2 translate, Vecto
     RasterHorizontalOrVerticalBands(false);
 }
 
+void raster_curves(Curves_Packed* curves, Bounds bbox)
+{
+    Vector2 translate = (Vector2){-(float)bbox.x1 + PADDING_X, -(float)bbox.y1 + PADDING_Y}; // snaps the bounding box to 0,0
+    Vector2 size = Vector2Add((Vector2){(float)bbox.x2, (float)bbox.y2}, translate);
+    size = Vector2Add(size, (Vector2){2*PADDING_X, 2*PADDING_Y});
+    RenderTexture2D target = LoadRenderTexture(size.x, size.y);
+    BeginTextureMode(target);
+
+    for (size_t i = 0;i < curves->count-1;++i)
+    {
+        Curve_Component cc1 = curves->items[i];
+        Curve_Component cc2 = curves->items[i+1];
+
+        Curve c = curve_from_points(cc1.x1, cc1.y1, cc1.x2, cc1.y2, cc2.x1, cc2.y1);
+
+        Vector2 p1 = Vector2Add(translate, (Vector2){(float)c.p1.x, (float)c.p1.y});
+        Vector2 c2 = Vector2Add(translate, (Vector2){(float)c.p2.x, (float)c.p2.y});
+        Vector2 p3 = Vector2Add(translate, (Vector2){(float)c.p3.x, (float)c.p3.y});
+
+        DrawCircleV(p1, 10.0f, BLUE);
+        DrawCircleV(c2, 10.0f, BLUE);
+        DrawCircleV(p3, 10.0f, BLUE);
+        if (c.p2.x == c.p3.x && c.p2.y == c.p3.y)
+        {
+            DrawLineEx(p1, p3, 5.0f, WHITE);
+        }
+        else
+        {
+            DrawLineEx(p1, c2, 2.0f, LIGHTGRAY);
+            DrawLineEx(c2, p3, 2.0f, LIGHTGRAY);
+            DrawSplineSegmentBezierQuadratic(p1, c2, p3, 5.0, WHITE);
+        }
+    }
+
+    EndTextureMode();
+    Image result = LoadImageFromTexture(target.texture);
+    UnloadRenderTexture(target);
+    ImageFlipVertical(&result);
+    ExportImage(result, "test.png");
+    UnloadImage(result);
+}
+
 Image raster_glyph_curves(Slug_Font* font, Glyph* gl, Vector2 translate, Vector2 size)
 {
     RenderTexture2D target = LoadRenderTexture(size.x, size.y);
@@ -824,7 +873,7 @@ Image raster_glyph_curves(Slug_Font* font, Glyph* gl, Vector2 translate, Vector2
             int16_t y = gl->band_loc_y;
             Band_Component bc = font->band.items[y].bc[x+j];
 
-            Vec2 b_loc = offset_to_abs((Vec2){x, y}, bc.offset, TEXEL_WIDTH);
+            Vec2 b_loc = offset_to_abs((Vec2){x+j, y}, bc.offset, TEXEL_WIDTH);
             for (int16_t i = 0;i < bc.length;++i)
             {
                 Band_Component c_loc = font->band.items[b_loc.y].bc[b_loc.x+i];
@@ -1032,10 +1081,10 @@ int main(int argc, char* argv[])
         printf("allocated in %zu = %d\n", i, font.allocated_per_texture.items[i]);
     }
 
-
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIDDEN);
     InitWindow(100, 100, "Dummy");
     raster_glyph_atlas(&font, "out\\atlas.png");
+
 
     return 0;
 }
