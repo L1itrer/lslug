@@ -37,8 +37,8 @@
 
 int32_t codepoints_to_process[] = {
     'q',
-    //'@', '$', '&', '*',
-    //'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j',
+    // '$', '&', '*',
+    // 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j',
 };
 
 #define PADDING_X 30
@@ -113,7 +113,7 @@ typedef uint16_t float16_t;
 typedef struct Curve_Component Curve_Component;
 struct Curve_Component
 {
-    uint16_t x1, y1, x2, y2;
+    int16_t x1, y1, x2, y2;
 };
 
 typedef struct Curves Curves;
@@ -151,8 +151,6 @@ struct Glyph
     int16_t band_loc_x;
     int16_t band_loc_y;
     int16_t max_bands;
-    Bands horizontal;
-    Bands vertical;
 };
 
 typedef struct Glyphs Glyphs;
@@ -269,6 +267,17 @@ void merge_sort(void* arr, size_t number_of_elements, size_t sizeof_element, int
     free(R);
 }
 
+Vec2 offset_to_abs(Vec2 offset_from, int16_t offset, int16_t w)
+{
+    Vec2 result = {0};
+
+    int16_t target = offset_from.x + offset;
+    result.x = target % w;
+    result.y = offset_from.y + (target >= w);
+
+    return result;
+}
+
 #if 0
 typedef union Convert_Float_To_U32 Convert_Float_To_U32;
 union Convert_Float_To_U32
@@ -369,9 +378,9 @@ Vec2f lerp(Vec2f a, Vec2f b, float t)
 Curve curve_from_points(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t x3, int16_t y3)
 {
     return (Curve){
-        (Vec2){x1, y1},
-        (Vec2){x2, y2},
-        (Vec2){x3, y3},
+        .p1 = (Vec2){.x = x1, .y = y1},
+        .p2 = (Vec2){.x = x2, .y = y2},
+        .p3 = (Vec2){.x = x3, .y = y3},
     };
 }
 
@@ -571,7 +580,7 @@ Vec2 allocate_bands(Slug_Font* font, Int_Array* bnd_horiz, Int_Array* bnd_vert, 
 
         // fill the metadata for the current band
         Band_Component bc = {0};
-        bc.offset = (int16_t)((metadata_loc_y * TEXEL_WIDTH + metadata_loc_x) - (block_idx * TEXEL_WIDTH + x_idx));
+        bc.offset = (int16_t)((block_idx * TEXEL_WIDTH + x_idx) - (metadata_loc_y * TEXEL_WIDTH + metadata_loc_x+j));
         bc.length = (int16_t)curr_bnd->count;
         bnd->items[metadata_loc_y].bc[metadata_loc_x+j] = bc;
     }
@@ -601,7 +610,7 @@ bool process_codepoint(Slug_Font* font, stbtt_fontinfo* info, int32_t codepoint,
 
     size_t curves_count = count_curves(verticies, vert_count);
     int bands_count = (int)Clamp(sqrt((double)curves_count), 1.0, 16.0);
-    printf("Esitmated band count = %d\n", bands_count);
+    gl->max_bands = (int16_t)bands_count;
 
     float band_scale_x = glyph_width/(float)bands_count;
     float band_scale_y = glyph_height/(float)bands_count;
@@ -613,9 +622,9 @@ bool process_codepoint(Slug_Font* font, stbtt_fontinfo* info, int32_t codepoint,
     Curve_Component cc = {0};
     Curve_Component* c_curr = NULL;
     bool could_process = true;
-    for (int i = 0;i < vert_count;++i)
+    for (int j = 0;j < vert_count;++j)
     {
-        stbtt_vertex v = verticies[i];
+        stbtt_vertex v = verticies[j];
         // TODO: actually does stb_truetype already use y-is-up?
         // transform to y-is-up coordinates
         //Vec2 p = {v.x, (int16_t)gl->bbox.y2 - v.y + (int16_t)gl->bbox.y1};
@@ -639,8 +648,8 @@ bool process_codepoint(Slug_Font* font, stbtt_fontinfo* info, int32_t codepoint,
             case STBTT_vline:
             case STBTT_vcurve:
             {
-                size_t idx = font->curves.count;
-                c_curr = &font->curves.items[idx-1];
+                size_t idx = font->curves.count-1;
+                c_curr = &font->curves.items[idx];
                 c_curr->x2 = (v.type == STBTT_vline) ? x : cx;
                 c_curr->y2 = (v.type == STBTT_vline) ? y : cy;
                 cc = (Curve_Component){};
@@ -649,9 +658,9 @@ bool process_codepoint(Slug_Font* font, stbtt_fontinfo* info, int32_t codepoint,
                 da_append(&font->curves, cc);
 
                 // loop over the bands
+                Curve c = curve_from_points(c_curr->x1, c_curr->y1, c_curr->x2, c_curr->y2, cc.x1, cc.y1);
                 for (int i = 0;i < bands_count;++i)
                 {
-                    Curve c = curve_from_points(c_curr->x1, c_curr->y1, c_curr->x2, c_curr->y2, cc.x1, cc.y1);
                     // exclude horizontal lines from horizontal bands
                     if (!((c.p1.y == c.p2.y) && (c.p2.y == c.p3.y)))
                     {
@@ -704,85 +713,94 @@ end:
     return could_process;
 }
 
-#if 0
+#if 1
 
 #define RasterSomething(name) Image name(Slug_Font* font, Glyph* gl, Vector2 translate, Vector2 size)
 
 typedef RasterSomething(Raster_Something_Proc);
 
 #define RasterHorizontalOrVerticalBands(is_horizontal) \
-    Image* images = calloc(gl->horizontal.count, sizeof(Image));                               \
-    for (size_t i = 0;i < gl->horizontal.count;++i)                                            \
-    {                                                                                          \
-        RenderTexture2D target = LoadRenderTexture(size.x, size.y);                            \
-        BeginTextureMode(target);                                                              \
-        {                                                                                      \
-            ClearBackground(BLACK);                                                            \
-                                                                                               \
-            Color band_color = (i % 2 == 0) ? GREEN : LIME;                                    \
-            if (is_horizontal)                                                                 \
-            {                                                                                  \
-                int glyph_h = (int)(gl->bbox.y2 - gl->bbox.y1);                                \
-                int band_h = glyph_h/gl->horizontal.count;                                     \
-                int band_y = i * band_h + PADDING_Y;                                           \
-                DrawRectangle(PADDING_X, band_y, size.x - PADDING_X*2, band_h, band_color);    \
-            }                                                                                  \
-            else                                                                               \
-            {                                                                                  \
-                int glyph_w = (int)(gl->bbox.x2 - gl->bbox.x1);                                \
-                int band_w = glyph_w/gl->vertical.count;                                       \
-                int band_x = i * band_w + PADDING_X;                                           \
-                DrawRectangle(band_x, PADDING_Y, band_w, size.y - PADDING_Y*2, band_color);    \
-            }                                                                                  \
-                                                                                               \
-            Int_Array band = (is_horizontal) ? gl->horizontal.items[i] : gl->vertical.items[i];\
-            for (size_t j = 0;j < band.count;++j)                                              \
-            {                                                                                  \
-                int32_t c_idx = band.items[j];                                                 \
-                Curve c = font->curves.items[c_idx];                                           \
-                                                                                               \
-                Vector2 p1 = Vector2Add(translate, (Vector2){(float)c.p1.x, (float)c.p1.y});   \
-                Vector2 c2 = Vector2Add(translate, (Vector2){(float)c.p2.x, (float)c.p2.y});   \
-                Vector2 p3 = Vector2Add(translate, (Vector2){(float)c.p3.x, (float)c.p3.y});   \
-                                                                                               \
-                DrawLineEx(p1, c2, 2.0f, LIGHTGRAY);                                           \
-                DrawLineEx(c2, p3, 2.0f, LIGHTGRAY);                                           \
-                DrawLineEx(p1, p3, 2.0f, LIGHTGRAY);                                           \
-                                                                                               \
-                DrawCircleV(p1, 10.0f, BLUE);                                                  \
-                DrawCircleV(c2, 10.0f, BLUE);                                                  \
-                DrawCircleV(p3, 10.0f, BLUE);                                                  \
-                                                                                               \
-                DrawSplineSegmentBezierQuadratic(p1, c2, p3, 5.0, WHITE);                      \
-            }                                                                                  \
-                                                                                               \
-            Rectangle bounding_rec = (Rectangle){0, 0, size.x, size.y};                        \
-            DrawRectangleLinesEx(bounding_rec, 2.0f, WHITE);                                   \
-        } EndTextureMode();                                                                    \
-                                                                                               \
-        images[i] = LoadImageFromTexture(target.texture);                                      \
-        ImageFlipVertical(&images[i]);                                                         \
-        UnloadRenderTexture(target);                                                           \
-    }                                                                                          \
-                                                                                               \
-    Image result = GenImageColor(                                                              \
-        gl->horizontal.count * size.x,                                                         \
-        size.y,                                                                                \
-        BLACK                                                                                  \
-    );                                                                                         \
-                                                                                               \
-    for (size_t i = 0;i < gl->horizontal.count;++i)                                            \
-    {                                                                                          \
-        Image img = images[i];                                                                 \
-        Rectangle src_rect = (Rectangle){0, 0, img.width, img.height};                         \
-        Rectangle dest_rect = (Rectangle){(int)i*size.x, 0, img.width, img.height};            \
-                                                                                               \
-        ImageDraw(&result, img, src_rect, dest_rect, WHITE);                                   \
-        UnloadImage(img);                                                                      \
-    }                                                                                          \
-                                                                                               \
-    free(images);                                                                              \
-    return result;                                                                             \
+    Image* images = calloc(gl->max_bands, sizeof(Image));                               \
+    int max_bands = gl->max_bands;                                                      \
+    for (int32_t j = 0;j < gl->max_bands;++j)                                           \
+    {                                                                                   \
+        RenderTexture2D target = LoadRenderTexture(size.x, size.y);                     \
+        BeginTextureMode(target);                                                       \
+        ClearBackground(BLACK);                                                         \
+                                                                                        \
+        Color band_color = (j % 2 == 0) ? GREEN : LIME;                                 \
+                                                                                        \
+        int16_t x = gl->band_loc_x;                                                     \
+        int16_t y = gl->band_loc_y;                                                     \
+                                                                                        \
+        int to_add = 0;                                                                 \
+        if (!is_horizontal) to_add = max_bands;                                         \
+        Band_Component bc = font->band.items[y].bc[x+j+to_add];                         \
+        if (is_horizontal)                                                              \
+        {                                                                               \
+            int glyph_h = (int)(gl->bbox.y2 - gl->bbox.y1);                             \
+            int band_h = glyph_h/max_bands;                                             \
+            int band_y = j * band_h + PADDING_Y;                                        \
+            DrawRectangle(PADDING_X, band_y, size.x - PADDING_X*2, band_h, band_color); \
+        }                                                                               \
+        else                                                                            \
+        {                                                                               \
+            int glyph_w = (int)(gl->bbox.x2 - gl->bbox.x1);                             \
+            int band_w = glyph_w/max_bands;                                             \
+            int band_x = j * band_w + PADDING_X;                                        \
+            DrawRectangle(band_x, PADDING_Y, band_w, size.y - PADDING_Y*2, band_color); \
+        }                                                                               \
+                                                                                        \
+        Vec2 b_loc = offset_to_abs((Vec2){x, y}, bc.offset, TEXEL_WIDTH);               \
+        for (int16_t i = 0;i < bc.length;++i)                                           \
+        {                                                                               \
+            Band_Component c_loc = font->band.items[b_loc.y].bc[b_loc.x+i];             \
+            Curve_Component cc1 = font->curves.items[c_loc.y * TEXEL_WIDTH + c_loc.x];  \
+            Curve_Component cc2 = font->curves.items[c_loc.y * TEXEL_WIDTH + c_loc.x+1];\
+                                                                                        \
+            Curve c = curve_from_points(cc1.x1, cc1.y1, cc1.x2, cc1.y2, cc2.x1, cc2.y1);\
+                                                                                        \
+            Vector2 p1 = Vector2Add(translate, (Vector2){(float)c.p1.x, (float)c.p1.y});\
+            Vector2 c2 = Vector2Add(translate, (Vector2){(float)c.p2.x, (float)c.p2.y});\
+            Vector2 p3 = Vector2Add(translate, (Vector2){(float)c.p3.x, (float)c.p3.y});\
+                                                                                        \
+            DrawCircleV(p1, 10.0f, BLUE);                                               \
+            DrawCircleV(c2, 10.0f, BLUE);                                               \
+            DrawCircleV(p3, 10.0f, BLUE);                                               \
+            if (c.p2.x == c.p3.x && c.p2.y == c.p3.y)                                   \
+            {                                                                           \
+                DrawLineEx(p1, p3, 5.0f, WHITE);                                        \
+            }                                                                           \
+            else                                                                        \
+            {                                                                           \
+                DrawLineEx(p1, c2, 2.0f, LIGHTGRAY);                                    \
+                DrawLineEx(c2, p3, 2.0f, LIGHTGRAY);                                    \
+                DrawSplineSegmentBezierQuadratic(p1, c2, p3, 5.0, WHITE);               \
+            }                                                                           \
+        }                                                                               \
+        Rectangle bounding_rec = (Rectangle){0, 0, size.x, size.y};                     \
+        DrawRectangleLinesEx(bounding_rec, 2.0f, WHITE);                                \
+        EndTextureMode();                                                               \
+        Image img = LoadImageFromTexture(target.texture);                               \
+        UnloadRenderTexture(target);                                                    \
+        ImageFlipVertical(&img);                                                        \
+        images[j] = img;                                                                \
+    }                                                                                   \
+    Image result = GenImageColor(                                                       \
+        max_bands * size.x,                                                             \
+        size.y,                                                                         \
+        BLACK                                                                           \
+    );                                                                                  \
+                                                                                        \
+    for (size_t i = 0;i < (size_t)max_bands;++i)                                        \
+    {                                                                                   \
+        Image img = images[i];                                                          \
+        Rectangle src_rect = (Rectangle){0, 0, img.width, img.height};                  \
+        Rectangle dest_rect = (Rectangle){(int)i*size.x, 0, img.width, img.height};     \
+        ImageDraw(&result, img, src_rect, dest_rect, WHITE);                            \
+        UnloadImage(img);                                                               \
+    }                                                                                   \
+    return result;                                                                      \
 
 Image raster_horizontal_bands(Slug_Font* font, Glyph* gl, Vector2 translate, Vector2 size)
 {
@@ -791,7 +809,7 @@ Image raster_horizontal_bands(Slug_Font* font, Glyph* gl, Vector2 translate, Vec
 
 Image raster_vertical_bands(Slug_Font* font, Glyph* gl, Vector2 translate, Vector2 size)
 {
-    RasterHorizontalOrVerticalBands(false)
+    RasterHorizontalOrVerticalBands(false);
 }
 
 Image raster_glyph_curves(Slug_Font* font, Glyph* gl, Vector2 translate, Vector2 size)
@@ -800,25 +818,38 @@ Image raster_glyph_curves(Slug_Font* font, Glyph* gl, Vector2 translate, Vector2
     BeginTextureMode(target);
     {
         ClearBackground(BLACK);
-        for (int32_t i = 0;i < gl->glyph_texture_curves_count;++i)
+        for (int32_t j = 0;j < gl->max_bands*2;++j)
         {
-            Curve c = font->curves.items[gl->glyph_texture_index + i];
-            Vector2 p1 = Vector2Add(translate, (Vector2){(float)c.p1.x, (float)c.p1.y});
-            Vector2 c2 = Vector2Add(translate, (Vector2){(float)c.p2.x, (float)c.p2.y});
-            Vector2 p3 = Vector2Add(translate, (Vector2){(float)c.p3.x, (float)c.p3.y});
+            int16_t x = gl->band_loc_x;
+            int16_t y = gl->band_loc_y;
+            Band_Component bc = font->band.items[y].bc[x+j];
 
-            DrawCircleV(p1, 10.0f, BLUE);
-            DrawCircleV(c2, 10.0f, BLUE);
-            DrawCircleV(p3, 10.0f, BLUE);
-            if (c.p2.x == c.p3.x && c.p2.y == c.p3.y)
+            Vec2 b_loc = offset_to_abs((Vec2){x, y}, bc.offset, TEXEL_WIDTH);
+            for (int16_t i = 0;i < bc.length;++i)
             {
-                DrawLineEx(p1, p3, 5.0f, WHITE);
-            }
-            else
-            {
-                DrawLineEx(p1, c2, 2.0f, LIGHTGRAY);
-                DrawLineEx(c2, p3, 2.0f, LIGHTGRAY);
-                DrawSplineSegmentBezierQuadratic(p1, c2, p3, 5.0, WHITE);
+                Band_Component c_loc = font->band.items[b_loc.y].bc[b_loc.x+i];
+                Curve_Component cc1 = font->curves.items[c_loc.y * TEXEL_WIDTH + c_loc.x];
+                Curve_Component cc2 = font->curves.items[c_loc.y * TEXEL_WIDTH + c_loc.x+1];
+
+                Curve c = curve_from_points(cc1.x1, cc1.y1, cc1.x2, cc1.y2, cc2.x1, cc2.y1);
+
+                Vector2 p1 = Vector2Add(translate, (Vector2){(float)c.p1.x, (float)c.p1.y});
+                Vector2 c2 = Vector2Add(translate, (Vector2){(float)c.p2.x, (float)c.p2.y});
+                Vector2 p3 = Vector2Add(translate, (Vector2){(float)c.p3.x, (float)c.p3.y});
+
+                DrawCircleV(p1, 10.0f, BLUE);
+                DrawCircleV(c2, 10.0f, BLUE);
+                DrawCircleV(p3, 10.0f, BLUE);
+                if (c.p2.x == c.p3.x && c.p2.y == c.p3.y)
+                {
+                    DrawLineEx(p1, p3, 5.0f, WHITE);
+                }
+                else
+                {
+                    DrawLineEx(p1, c2, 2.0f, LIGHTGRAY);
+                    DrawLineEx(c2, p3, 2.0f, LIGHTGRAY);
+                    DrawSplineSegmentBezierQuadratic(p1, c2, p3, 5.0, WHITE);
+                }
             }
         }
         Rectangle bounding_rec = (Rectangle){0, 0, size.x, size.y};
@@ -996,10 +1027,15 @@ int main(int argc, char* argv[])
     }
     printf("Processed %d glyphs, curves %zu\n", processed_codepoints, font.curves.count);
 
-    // SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIDDEN);
-    // InitWindow(100, 100, "Dummy");
-    //
-    // raster_glyph_atlas(&font, "out\\atlas.png");
+    for (size_t i = 0;i < font.allocated_per_texture.count;++i)
+    {
+        printf("allocated in %zu = %d\n", i, font.allocated_per_texture.items[i]);
+    }
+
+
+    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIDDEN);
+    InitWindow(100, 100, "Dummy");
+    raster_glyph_atlas(&font, "out\\atlas.png");
 
     return 0;
 }
