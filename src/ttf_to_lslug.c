@@ -1236,8 +1236,8 @@ void draw_text(Render_State* rd, Slug_Font* font, float x, float y, float size, 
             v->jac_10 = 0.0f; v->jac_11 = 1.0f;
             v->band_scale_x = (float)(gl.bbox.x2 - gl.bbox.x1) / (float)gl.max_bands;
             v->band_scale_y = (float)(gl.bbox.y2 - gl.bbox.y1) / (float)gl.max_bands;
-            v->band_offset_x = 1.0f; // TOOD
-            v->band_offset_y = 1.0f; // TOOD
+            v->band_offset_x = -gl.bbox.x1 * v->band_scale_x; // TOOD
+            v->band_offset_y = -gl.bbox.y1* v->band_scale_y; // TOOD
             v->r = 1.0f; v->g = 1.0f; v->b = 1.0f; v->a = 1.0f;
             vertex_count += 1;
         }
@@ -1245,14 +1245,15 @@ void draw_text(Render_State* rd, Slug_Font* font, float x, float y, float size, 
         cursor += (float)gl.advance * scale;
     }
 
-    M4f model = m4f_mul(m4f_translate(x, y, 1.0f), m4f_scale(scale));
+    M4f model = m4f_mul(m4f_translate(x, y, 0.0f), m4f_scale(scale));
 
     M4f projection = m4f_orthographic(0.0f, WINDOW_WIDTH, 0.0f, WINDOW_HEIGHT, 0.1f, 100.0f);
 
     M4f mvp = projection;//m4f_mul(model, projection);
-
+    V2f viewport = (V2f){{WINDOW_WIDTH, WINDOW_HEIGHT}};
     glUseProgram(rd->text_shader);
     glUniformMatrix4fv(glGetUniformLocation(rd->text_shader, "mvp"), 1, false, mvp.c);
+    glUniform2fv(glGetUniformLocation(rd->text_shader, "viewport"), 1, viewport.c);
 
     glBindVertexArray(rd->text_vao);
     glBindBuffer(GL_ARRAY_BUFFER, rd->text_vbo);

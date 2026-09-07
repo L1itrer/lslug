@@ -7,7 +7,7 @@ struct Vert_To_Frag {
 };
 
 uniform mat4 mvp;
-//uniform vec4 viewport;
+uniform vec2 viewport;
 
 #if VERTEX_SHADER
 
@@ -26,13 +26,33 @@ layout(location = 4) in vec4 in_color; // rgba
 
 out Vert_To_Frag vert;
 
+vec2 slug_dilute(vec4 pos, vec4 tex, vec4 jac, mat4 m, vec2 dim, out vec2 vpos)
+{
+    vec2 n = normalize(pos.zw);
+    float s = dot(m[3].xy, pos.xy) + m[3].w;
+    float t = dot(m[3].xy, n);
+
+    float u = (s * dot(m[0].xy, n) - t * (dot(m[0].xy, pos.xy) + m[0].w)) * dim.x;
+    float v = (s * dot(m[1].xy, n) - t * (dot(m[1].xy, pos.xy) + m[1].w)) * dim.y;
+
+    float s2 = s * s;
+    float st = s * t;
+    float uv = u * u + v * v;
+    vec2 d = pos.zw * (s2 * (st + sqrt(uv)) / (uv - st * st));
+
+    vpos = pos.xy + d;
+    return (vec2(tex.x + dot(d, jac.xy), tex.y + dot(d, jac.zw)));
+}
+
 void main()
 {
-#if 0
-    vec2 p = in_position.xy;
+    vec2 p;
+    vert.texcoord = slug_dilute(in_position, in_tex, in_jac, mvp, viewport, p);
+#if 1
     vert.position.x = p.x * mvp[0].x + p.y * mvp[0].y + mvp[0].w;
     vert.position.y = p.x * mvp[1].x + p.y * mvp[1].y + mvp[1].w;
-    vert.position.z = p.x * mvp[2].x + p.y * mvp[2].y + mvp[2].w;
+    // TODO: figura out coordinate systems
+    vert.position.z = 1.0;//p.x * mvp[2].x + p.y * mvp[2].y + mvp[2].w;
     vert.position.w = p.x * mvp[3].x + p.y * mvp[3].y + mvp[3].w;
 #else
     vert.position = vec4(in_position.xy, -1.0, 1.0) * mvp;
@@ -40,7 +60,6 @@ void main()
 
     gl_Position = vert.position;
     vert.color = in_color;
-    vert.texcoord = in_tex.xy;
     vert.banding = in_bnd;
 
 
@@ -60,7 +79,6 @@ out vec4 out_color;
 
 float slug_render(vec2 em_render_coord, ivec4 glyph, vec4 band_transform)
 {
-#if 1
     vec2 em_per_pixel = fwidth(em_render_coord);
     vec2 pixels_per_em = 1.0 / em_per_pixel;
 
@@ -70,7 +88,11 @@ float slug_render(vec2 em_render_coord, ivec4 glyph, vec4 band_transform)
     ivec2 idx_low_bound = ivec2(em_render_coord * band_transform.xy + band_transform.zw);
     ivec2 band_idx = clamp(idx_low_bound, ivec2(0), band_max);
     ivec2 glyph_loc = ivec2(glyph.xy);
-#endif
+
+    float xcov = 0.0;
+    float xwgt = 0.0;
+
+    //ivec2 h_band_data = texelFetch();
 
     return 1.0;
 }
