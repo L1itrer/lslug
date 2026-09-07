@@ -9,8 +9,13 @@
 #include <stdint.h>
 #include <math.h>
 
-#include <raylib.h>
-#include <raymath.h>
+#define LA_IMPLEMENTATION
+#include "la.h"
+
+#include "glad.h"
+#define RGFW_OPENGL
+#define RGFW_IMPLEMENTATION
+#include "RGFW.h"
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
@@ -20,6 +25,9 @@
 #define LSLUG_VERSION 1
 
 #define FLOAT16_ASSERT_ON_OVERFLOW 1
+
+#define WINDOW_WIDTH  960
+#define WINDOW_HEIGHT 540
 
 #define DA_INIT_CAP 256
 #define da_append(da, item)                                                          \
@@ -36,9 +44,9 @@
 #define ARRAY_SIZE(arr) (sizeof(arr)/sizeof(arr[0]))
 
 int32_t codepoints_to_process[] = {
-    'q',
-    // '$', '&', '*',
-    // 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j',
+    '$', '&', '*', '%',
+    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'o', 'p', 'r', 's', 't', 'y', 'z',
+    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'O', 'P', 'R', 'S', 'T', 'Y', 'Z',
 };
 
 #define PADDING_X 30
@@ -278,13 +286,14 @@ Vec2 offset_to_abs(Vec2 offset_from, int16_t offset, int16_t w)
     return result;
 }
 
-#if 0
-typedef union Convert_Float_To_U32 Convert_Float_To_U32;
-union Convert_Float_To_U32
+typedef union Convert_Float_U32 Convert_Float_U32;
+union Convert_Float_U32
 {
     float f;
     uint32_t u;
 };
+
+#if 0
 
 // shamelessly copied from jai's Float16 module
 float16_t f32_to_f16(float f)
@@ -368,7 +377,7 @@ Vec2f vec2f_scale(Vec2f a, float b)
     return (Vec2f){a.x * b, a.y * b};
 }
 
-Vec2f lerp(Vec2f a, Vec2f b, float t)
+Vec2f vec2f_lerp(Vec2f a, Vec2f b, float t)
 {
     Vec2f b_minus_a = vec2f_sub(b, a);
     Vec2f b_minus_a_times_t = vec2f_scale(b_minus_a, t);
@@ -398,10 +407,10 @@ bool curve_overlaps_band_horizontal(Curve c, int band_idx, float scale, Bounds g
         Vec2f p1 = (Vec2f){(float)c.p1.x, (float)c.p1.y};
         Vec2f p2 = (Vec2f){(float)c.p2.x, (float)c.p2.y};
         Vec2f p3 = (Vec2f){(float)c.p3.x, (float)c.p3.y};
-        Vec2f first = lerp(p1, p2, t);
-        Vec2f second = lerp(p2, p3, t);
+        Vec2f first =  vec2f_lerp(p1, p2, t);
+        Vec2f second = vec2f_lerp(p2, p3, t);
 
-        Vec2f result_point = lerp(first, second, t);
+        Vec2f result_point = vec2f_lerp(first, second, t);
         if (result_point.y >= band_y1 && result_point.y <= band_y2)
         {
             overlaps = true;
@@ -423,10 +432,10 @@ bool curve_overlaps_band_vertical(Curve c, int band_idx, float scale, Bounds gl_
         Vec2f p1 = (Vec2f){(float)c.p1.x, (float)c.p1.y};
         Vec2f p2 = (Vec2f){(float)c.p2.x, (float)c.p2.y};
         Vec2f p3 = (Vec2f){(float)c.p3.x, (float)c.p3.y};
-        Vec2f first = lerp(p1, p2, t);
-        Vec2f second = lerp(p2, p3, t);
+        Vec2f first =  vec2f_lerp(p1, p2, t);
+        Vec2f second = vec2f_lerp(p2, p3, t);
 
-        Vec2f result_point = lerp(first, second, t);
+        Vec2f result_point = vec2f_lerp(first, second, t);
         if (result_point.x >= band_x1 && result_point.x <= band_x2)
         {
             overlaps = true;
@@ -573,10 +582,6 @@ Vec2 allocate_bands(Slug_Font* font, Int_Array* bnd_horiz, Int_Array* bnd_vert, 
             int32_t idx_in_curve_texture = curr_bnd->items[i];
             int16_t curve_y = idx_in_curve_texture / TEXEL_WIDTH;
             int16_t curve_x = idx_in_curve_texture - curve_y * TEXEL_WIDTH;
-            if (j == 4)
-            {
-                printf("curve = (%d,%d)\n", curve_x, curve_y);
-            }
 
             bnd->items[block_idx].bc[x_idx+i].x = curve_x;
             bnd->items[block_idx].bc[x_idx+i].y = curve_y;
@@ -696,8 +701,8 @@ bool process_codepoint(Slug_Font* font, stbtt_fontinfo* info, int32_t codepoint,
     // sort the bands by descending x or y
     for (int i = 0;i < bands_count;++i)
     {
-        // merge_sort(bnd_horiz[i].items, bnd_horiz[i].count, sizeof(bnd_horiz[i].items[0]), compare_band_by_x, font);
-        // merge_sort(bnd_vert[i].items, bnd_vert[i].count, sizeof(bnd_vert[i].items[0]), compare_band_by_y, font);
+        merge_sort(bnd_horiz[i].items, bnd_horiz[i].count, sizeof(bnd_horiz[i].items[0]), compare_band_by_x, font);
+        merge_sort(bnd_vert[i].items, bnd_vert[i].count, sizeof(bnd_vert[i].items[0]), compare_band_by_y, font);
     }
 
     Vec2 band_loc = allocate_bands(font, bnd_horiz, bnd_vert, bands_count);
@@ -717,7 +722,7 @@ end:
     return could_process;
 }
 
-#if 1
+#if 0
 
 #define RasterSomething(name) Image name(Slug_Font* font, Glyph* gl, Vector2 translate, Vector2 size)
 
@@ -760,8 +765,6 @@ typedef RasterSomething(Raster_Something_Proc);
         for (int16_t i = 0;i < bc.length;++i)                                           \
         {                                                                               \
             Band_Component c_loc = font->band.items[b_loc.y].bc[b_loc.x+i];             \
-            if (is_horizontal && j == 4)\
-            printf("---curve = (%d,%d)\n", c_loc.x, c_loc.y);\
             Curve_Component cc1 = font->curves.items[c_loc.y * TEXEL_WIDTH + c_loc.x];  \
             Curve_Component cc2 = font->curves.items[c_loc.y * TEXEL_WIDTH + c_loc.x+1];\
                                                                                         \
@@ -994,8 +997,272 @@ void raster_glyph_atlas(Slug_Font* font, const char* path)
     UnloadImage(final_img);
 }
 
+void raster_single_glyph_atlas(Slug_Font* font, Glyph* gl, const char* path)
+{
+    Image img = raster_glyph_to_image(font, gl);
+    ExportImage(img, path);
+    UnloadImage(img);
+}
+
 #endif
 
+bool shader_compile_specific(uint32_t* return_handle, char* source, uint32_t kind)
+{
+    uint32_t shader = glCreateShader(kind);
+
+    glShaderSource(shader, 1, &source, NULL);
+    glCompileShader(shader);
+
+    GLint success = 0;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+    if (!success)
+    {
+        GLint length = 0;
+        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
+        length += 1;
+        char* error_log = calloc(length, 1);
+
+        glGetShaderInfoLog(shader, length, NULL, error_log);
+
+        fprintf(stderr, "--------------------------\n");
+        fprintf(stderr, "%s", error_log);
+        fprintf(stderr, "--------------------------\n\n");
+        free(error_log);
+        return false;
+    }
+
+    *return_handle = shader;
+    return true;
+}
+
+bool shader_compile(uint32_t* return_shader, const char* path)
+{
+    FILE* f = fopen(path, "rb");
+    if (f == NULL) 
+    {
+        fprintf(stderr, "Could not load shader %s\n", path);
+        return false;
+    }
+    Bytes data = try_read_entire_file(f);
+    assert(data.data);
+
+    const size_t buffer_size = (1<<16);
+    char* buffer = calloc(buffer_size, 1);
+
+    snprintf(buffer, buffer_size, "#version 330 core\n#define VERTEX_SHADER 1\n%.*s", (int)data.count, data.data);
+    uint32_t frag = 0, vert = 0;
+    
+    bool vok = shader_compile_specific(&vert, buffer, GL_VERTEX_SHADER);
+    memset(buffer, 0, buffer_size);
+    snprintf(buffer, buffer_size, "#version 330 core\n#define FRAGMENT_SHADER 1\n%.*s", (int)data.count, data.data);
+    bool fok = shader_compile_specific(&frag, buffer, GL_FRAGMENT_SHADER);
+    free(buffer);
+
+    if (!fok || !vok) return false;
+
+    uint32_t shader = glCreateProgram();
+    glAttachShader(shader, vert);
+    glAttachShader(shader, frag);
+    glLinkProgram(shader);
+
+    glDeleteShader(vert);
+    glDeleteShader(frag);
+    int32_t success = 0;
+    glGetProgramiv(shader, GL_LINK_STATUS, &success);
+    if (!success)
+    {
+        GLint length = 0;
+        glGetProgramiv(shader, GL_INFO_LOG_LENGTH, &length);
+        length += 1;
+        char* error_log = calloc(length, 1);
+
+        glGetProgramInfoLog(shader, length, NULL, error_log);
+
+        fprintf(stderr, "%s\n", error_log);
+        free(error_log);
+        glDeleteProgram(shader);
+        return false;
+    }
+
+    *return_shader = shader;
+
+    return true;
+}
+
+typedef struct Slug_Vertex Slug_Vertex;
+struct Slug_Vertex
+{
+    float pos_x, pos_y, norm_x, norm_y;
+    float tex_x, tex_y, packed_loc, max_band_indecies;
+    float jac_00, jac_01, jac_10, jac_11;
+    float band_scale_x, band_scale_y, band_offset_x, band_offset_y;
+    float r, g, b, a;
+};
+
+M4f m4f_translate(float x, float y, float z)
+{
+    M4f m = m4f_id();
+    m.m[3][0] = x;
+    m.m[3][1] = y;
+    m.m[3][2] = z;
+    return m;
+}
+
+M4f m4f_scale(float scale)
+{
+    M4f m = {0};
+    m.m[0][0] = scale;
+    m.m[1][1] = scale;
+    m.m[2][2] = scale;
+    m.m[3][3] = 1.0f;
+    return m;
+}
+
+/*
+I cannot name the params just near and far because i get this bizzare error:
+../src/ttf_to_lslug.c(1121,82): warning: omitting the parameter name in a function definition is a C23 extension     
+      [-Wc23-extensions]
+ 1121 | M4f m4f_orthographic(float left, float right, float bottom, float top, float near, float far)
+
+Probably some library takes the names far and near for reasons
+*/
+M4f m4f_orthographic(float left, float right, float bottom, float top, float near_, float far_)
+{
+    M4f m = {0};
+    m._11 = 2.0f/(right - left);
+    m._22 = 2.0f/(top - bottom);
+    m._33 = -2.0f/(far_ - near_);
+    m._14 = -1.0f * (right + left) / (right - left); 
+    m._24 = -1.0f * (top + bottom) / (top - bottom);
+    m._34 = -1.0f * (far_ + near_) / (far_ - near_);
+    m._44 = 1.0f;
+    return m;
+}
+
+typedef struct Render_State Render_State;
+struct Render_State
+{
+    uint32_t text_shader;
+    uint32_t text_vao, text_vbo;
+};
+
+#define MAX_TEXT 128
+#define VERTECIES_PER_GLYPH 6
+
+bool init_render_state(Render_State* rd)
+{
+    bool result = shader_compile(&rd->text_shader, "./src/slug.glsl");
+    if (result)
+    {
+        glGenVertexArrays(1, &rd->text_vao);
+        glGenBuffers(1, &rd->text_vbo);
+        glBindVertexArray(rd->text_vao);
+        glBindBuffer(GL_ARRAY_BUFFER, rd->text_vbo);
+        glBufferData(GL_ARRAY_BUFFER, MAX_TEXT * VERTECIES_PER_GLYPH * sizeof(Slug_Vertex), NULL, GL_DYNAMIC_DRAW);
+
+
+        glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)0);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(4 * sizeof(float)));
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(8 * sizeof(float)));
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(12 * sizeof(float)));
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(16 * sizeof(float)));
+        glEnableVertexAttribArray(4);
+    }
+
+    return result;
+}
+
+void draw_text(Render_State* rd, Slug_Font* font, float x, float y, float size, char* text)
+{
+    size_t len = strlen(text);
+
+    Slug_Vertex* verticies = calloc(len * VERTECIES_PER_GLYPH, sizeof(Slug_Vertex));
+
+    int32_t vertex_count = 0;
+    float cursor = x;
+
+    float n = 0.70710678f;
+
+    float scale = font->em_scale * size;
+    for (size_t j = 0;j < len;++j)
+    {
+        char c = text[j];
+        Glyph gl = font->glyphs.items[c - 32];
+        if (c == ' ')
+        {
+            cursor += gl.advance * scale;
+            continue;
+        }
+
+        float ex1 = (float)gl.bbox.x1;
+        float ex2 = (float)gl.bbox.x2;
+        float ey1 = (float)gl.bbox.y1;
+        float ey2 = (float)gl.bbox.y2;
+
+        float ox1 = ex1 * scale + cursor;
+        float ox2 = ex2 * scale + cursor;
+        float oy1 = ey1 * scale + y;
+        float oy2 = ey2 * scale + y;
+
+        Convert_Float_U32 packed_loc;
+        Convert_Float_U32 packed_band_info;
+        packed_loc.u = ((uint32_t)gl.band_loc_y << 16) | (uint32_t)gl.band_loc_x;
+        packed_band_info.u = ((uint32_t)gl.max_bands << 16) | (uint32_t)gl.max_bands;
+
+        // tl, bl, br, tl, tr, br
+        float positions_x[6] = {ox1, ox1, ox2, ox1, ox2, ox2};
+        float positions_y[6] = {oy2, oy1, oy1, oy2, oy2, oy1};
+        float norms_x    [6] = { -n,  -n,   n,  -n,   n,   n};
+        float norms_y    [6] = {  n,  -n,  -n,   n,   n,  -n};
+        float ems_x      [6] = {ex1, ex1, ex2, ex1, ex2, ex2};
+        float ems_y      [6] = {ey2, ey1, ey1, ey2, ey2, ey1};
+
+        for (int i = 0;i < VERTECIES_PER_GLYPH;++i)
+        {
+            Slug_Vertex* v = verticies + vertex_count;
+            v->pos_x = positions_x[i];
+            v->pos_y = positions_y[i];
+            v->norm_x = norms_x[i];
+            v->norm_y = norms_y[i];
+            v->tex_x = ems_x[i];
+            v->tex_y = ems_y[i];
+            v->packed_loc = packed_loc.f;
+            v->max_band_indecies = packed_band_info.f;
+            v->jac_00 = 1.0f; v->jac_01 = 0.0f;
+            v->jac_10 = 0.0f; v->jac_11 = 1.0f;
+            v->band_scale_x = (float)(gl.bbox.x2 - gl.bbox.x1) / (float)gl.max_bands;
+            v->band_scale_y = (float)(gl.bbox.y2 - gl.bbox.y1) / (float)gl.max_bands;
+            v->band_offset_x = 1.0f; // TOOD
+            v->band_offset_y = 1.0f; // TOOD
+            v->r = 1.0f; v->g = 1.0f; v->b = 1.0f; v->a = 1.0f;
+            vertex_count += 1;
+        }
+
+        cursor += (float)gl.advance * scale;
+    }
+
+    M4f model = m4f_mul(m4f_translate(x, y, 1.0f), m4f_scale(scale));
+
+    M4f projection = m4f_orthographic(0.0f, WINDOW_WIDTH, 0.0f, WINDOW_HEIGHT, 0.1f, 100.0f);
+
+    M4f mvp = projection;//m4f_mul(model, projection);
+
+    glUseProgram(rd->text_shader);
+    glUniformMatrix4fv(glGetUniformLocation(rd->text_shader, "mvp"), 1, false, mvp.c);
+
+    glBindVertexArray(rd->text_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, rd->text_vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, vertex_count * sizeof(Slug_Vertex), verticies);
+
+
+    glDrawArrays(GL_TRIANGLES, 0, vertex_count);
+
+    free(verticies);
+}
 
 int main(int argc, char* argv[])
 {
@@ -1060,16 +1327,17 @@ int main(int argc, char* argv[])
     stbtt_GetFontBoundingBox(&info, &font.bbox.x1, &font.bbox.y1, &font.bbox.x2, &font.bbox.y2);
 
     int32_t processed_codepoints = 0;
-    for (size_t i = 0;i < ARRAY_SIZE(codepoints_to_process);++i)
+    for (size_t i = 32;i < 127/*ARRAY_SIZE(codepoints_to_process)*/;++i)
     {
         Glyph gl = {0};
-        gl.cp = codepoints_to_process[i];
+        gl.cp = i;//codepoints_to_process[i];
         if (!process_codepoint(&font, &info, gl.cp, &gl))
         {
             fprintf(stderr, "Could not process codepoint 0x%x\n", gl.cp);
         }
         else
         {
+            printf("processed codepoint %x\n", gl.cp);
             da_append(&font.glyphs, gl);
             processed_codepoints += 1;
         }
@@ -1081,10 +1349,56 @@ int main(int argc, char* argv[])
         printf("allocated in %zu = %d\n", i, font.allocated_per_texture.items[i]);
     }
 
-    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIDDEN);
-    InitWindow(100, 100, "Dummy");
-    raster_glyph_atlas(&font, "out\\atlas.png");
+    // SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIDDEN);
+    // InitWindow(100, 100, "Dummy");
+    //raster_glyph_atlas(&font, "out\\atlas.png");
+    // for (size_t i = 0;i < font.glyphs.count; ++i)
+    // {
+    //     char buffer[1024] = {0};
+    //     Glyph* gl = &font.glyphs.items[i];
+    //     snprintf(buffer, 1024, "./out/osr_%02d.png", gl->cp);
+    //     raster_single_glyph_atlas(&font, gl, buffer);
+    // }
+    printf("OK\n");
 
+    RGFW_glHints* hints = RGFW_getGlobalHints_OpenGL();
+    hints->debug = true;
+    RGFW_setGlobalHints_OpenGL(hints);
+
+    RGFW_window* window = RGFW_createWindow("Slug Font", 10, 10, WINDOW_WIDTH, WINDOW_HEIGHT, RGFW_windowAllowDND | RGFW_windowCenter | RGFW_windowOpenGL);
+    if (!window)
+    {
+        fprintf(stderr, "window creation\n");
+        return 1;
+    }
+
+    if (!gladLoadGLLoader((GLADloadproc)RGFW_getProcAddress_OpenGL))
+    {
+        fprintf(stderr, "Coult not load opengl\n");
+        return 1;
+    }
+
+    Render_State rd = {0};
+    if (!init_render_state(&rd))
+    {
+        return 1;
+    }
+
+    while (RGFW_window_shouldClose(window) == RGFW_FALSE)
+    {
+        RGFW_event event;
+        while (RGFW_window_checkEvent(window, &event)) {
+            if (event.type == RGFW_quit) break;
+        }
+        glClearColor(0.0, 0.0, 0.0, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        draw_text(&rd, &font, 100, 250, 150.0f, "Hello World");
+
+        RGFW_window_swapBuffers_OpenGL(window);
+    }
 
     return 0;
 }
+
+#include "glad.c"

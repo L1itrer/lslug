@@ -2,8 +2,8 @@
 if not exist ".\out" mkdir ".\out"
 pushd out
 
-set libs= kernel32.lib user32.lib gdi32.lib shell32.lib winmm.lib C:\dev\raylib-template\out\raylib.lib
-set compiler_opts= /nologo /FC /W4 /I ..\..\raylib-template\src\raylib-6.0
+set libs= kernel32.lib user32.lib gdi32.lib shell32.lib winmm.lib
+set compiler_opts= /nologo /FC /W4 /I
 set linker_opts= /nologo /INCREMENTAL:NO %libs%
 
 
