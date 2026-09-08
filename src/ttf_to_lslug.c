@@ -174,11 +174,11 @@ struct Band_Component
 {
     union
     {
-        int16_t x, offset;
+        int16_t x, length;
     };
     union
     {
-        int16_t y, length;
+        int16_t y, offset;
     };
 };
 
@@ -589,8 +589,10 @@ Vec2 allocate_bands(Slug_Font* font, Int_Array* bnd_horiz, Int_Array* bnd_vert, 
 
         // fill the metadata for the current band
         Band_Component bc = {0};
-        bc.offset = (int16_t)((block_idx * TEXEL_WIDTH + x_idx) - (metadata_loc_y * TEXEL_WIDTH + metadata_loc_x+j));
-        bc.length = (int16_t)curr_bnd->count;
+        int16_t offset = (int16_t)((block_idx * TEXEL_WIDTH + x_idx) - (metadata_loc_y * TEXEL_WIDTH + metadata_loc_x+j));
+        assert(offset >= 0 && "Offset was negative");
+        bc.offset = (uint16_t)offset;
+        bc.length = (uint16_t)curr_bnd->count;
         bnd->items[metadata_loc_y].bc[metadata_loc_x+j] = bc;
     }
 
@@ -1144,16 +1146,40 @@ struct Render_State
 {
     uint32_t text_shader;
     uint32_t text_vao, text_vbo;
+    uint32_t band_texture, curve_texture;
 };
 
 #define MAX_TEXT 128
 #define VERTECIES_PER_GLYPH 6
 
-bool init_render_state(Render_State* rd)
+bool init_render_state(Render_State* rd, Slug_Font* font)
 {
     bool result = shader_compile(&rd->text_shader, "./src/slug.glsl");
     if (result)
     {
+        glGenTextures(1, &rd->band_texture);
+        glBindTexture(GL_TEXTURE_2D, rd->band_texture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RG16UI, TEXEL_WIDTH, font->band.count, 0, GL_RG_INTEGER, GL_UNSIGNED_SHORT, font->band.items);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+        int remainder = TEXEL_WIDTH - (font->curves.count % TEXEL_WIDTH);
+        for (int i = 0;i < remainder;++i)
+        {
+            Curve_Component cc = {0};
+            da_append(&font->curves, cc);
+        }
+        if (!(font->curves.count % TEXEL_WIDTH == 0))
+        {
+            printf("curves count is = %zu, remainder is = %d\n", font->curves.count, remainder);
+            assert(false);
+        }
+        glGenTextures(1, &rd->curve_texture);
+        glBindTexture(GL_TEXTURE_2D, rd->curve_texture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16I, TEXEL_WIDTH, font->curves.count/TEXEL_WIDTH, 0, GL_RGBA_INTEGER, GL_SHORT, font->curves.items);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
         glGenVertexArrays(1, &rd->text_vao);
         glGenBuffers(1, &rd->text_vbo);
         glBindVertexArray(rd->text_vao);
@@ -1211,7 +1237,7 @@ void draw_text(Render_State* rd, Slug_Font* font, float x, float y, float size, 
         Convert_Float_U32 packed_loc;
         Convert_Float_U32 packed_band_info;
         packed_loc.u = ((uint32_t)gl.band_loc_y << 16) | (uint32_t)gl.band_loc_x;
-        packed_band_info.u = ((uint32_t)gl.max_bands << 16) | (uint32_t)gl.max_bands;
+        packed_band_info.u = ((uint32_t)(gl.max_bands-1) << 16) | (uint32_t)(gl.max_bands-1);
 
         // tl, bl, br, tl, tr, br
         float positions_x[6] = {ox1, ox1, ox2, ox1, ox2, ox2};
@@ -1234,10 +1260,10 @@ void draw_text(Render_State* rd, Slug_Font* font, float x, float y, float size, 
             v->max_band_indecies = packed_band_info.f;
             v->jac_00 = 1.0f; v->jac_01 = 0.0f;
             v->jac_10 = 0.0f; v->jac_11 = 1.0f;
-            v->band_scale_x = (float)(gl.bbox.x2 - gl.bbox.x1) / (float)gl.max_bands;
-            v->band_scale_y = (float)(gl.bbox.y2 - gl.bbox.y1) / (float)gl.max_bands;
-            v->band_offset_x = -gl.bbox.x1 * v->band_scale_x; // TOOD
-            v->band_offset_y = -gl.bbox.y1* v->band_scale_y; // TOOD
+            v->band_scale_x = ((float)gl.bbox.x2 - (float)gl.bbox.x1) / (float)gl.max_bands;
+            v->band_scale_y = ((float)gl.bbox.y2 - (float)gl.bbox.y1) / (float)gl.max_bands;
+            v->band_offset_x = (float)gl.bbox.x1; // TOOD
+            v->band_offset_y = (float)gl.bbox.y1; // TOOD
             v->r = 1.0f; v->g = 1.0f; v->b = 1.0f; v->a = 1.0f;
             vertex_count += 1;
         }
@@ -1254,6 +1280,14 @@ void draw_text(Render_State* rd, Slug_Font* font, float x, float y, float size, 
     glUseProgram(rd->text_shader);
     glUniformMatrix4fv(glGetUniformLocation(rd->text_shader, "mvp"), 1, false, mvp.c);
     glUniform2fv(glGetUniformLocation(rd->text_shader, "viewport"), 1, viewport.c);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, rd->curve_texture);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, rd->band_texture);
+
+    glUniform1i(glGetUniformLocation(rd->text_shader, "curve_texture"), 0);
+    glUniform1i(glGetUniformLocation(rd->text_shader, "band_texture"),  1);
 
     glBindVertexArray(rd->text_vao);
     glBindBuffer(GL_ARRAY_BUFFER, rd->text_vbo);
@@ -1380,7 +1414,7 @@ int main(int argc, char* argv[])
     }
 
     Render_State rd = {0};
-    if (!init_render_state(&rd))
+    if (!init_render_state(&rd, &font))
     {
         return 1;
     }
@@ -1388,13 +1422,17 @@ int main(int argc, char* argv[])
     while (RGFW_window_shouldClose(window) == RGFW_FALSE)
     {
         RGFW_event event;
-        while (RGFW_window_checkEvent(window, &event)) {
+        while (RGFW_window_checkEvent(window, &event))
+        {
             if (event.type == RGFW_quit) break;
         }
         glClearColor(0.0, 0.0, 0.0, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        draw_text(&rd, &font, 100, 250, 150.0f, "Hello World");
+        draw_text(&rd, &font, 90, 100, 500, "q");
+        // draw_text(&rd, &font, 90, 250, 150.0f, "Hello World!");
+        // draw_text(&rd, &font, 90, 250 - 25.0f, 25.0f, "A complete success");
+        // draw_text(&rd, &font, 90, 250 - 25.0f - 50.0f, 50.0f, "QC");
 
         RGFW_window_swapBuffers_OpenGL(window);
     }
