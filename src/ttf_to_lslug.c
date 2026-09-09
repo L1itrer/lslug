@@ -589,8 +589,9 @@ Vec2 allocate_bands(Slug_Font* font, Int_Array* bnd_horiz, Int_Array* bnd_vert, 
 
         // fill the metadata for the current band
         Band_Component bc = {0};
-        int16_t offset = (int16_t)((block_idx * TEXEL_WIDTH + x_idx) - (metadata_loc_y * TEXEL_WIDTH + metadata_loc_x+j));
+        int32_t offset = (int32_t)((block_idx * TEXEL_WIDTH + x_idx) - (metadata_loc_y * TEXEL_WIDTH + metadata_loc_x));
         assert(offset >= 0 && "Offset was negative");
+        assert(offset < 0xffff);
         bc.offset = (uint16_t)offset;
         bc.length = (uint16_t)curr_bnd->count;
         bnd->items[metadata_loc_y].bc[metadata_loc_x+j] = bc;
@@ -1262,8 +1263,8 @@ void draw_text(Render_State* rd, Slug_Font* font, float x, float y, float size, 
             v->jac_10 = 0.0f; v->jac_11 = 1.0f;
             v->band_scale_x = ((float)gl.bbox.x2 - (float)gl.bbox.x1) / (float)gl.max_bands;
             v->band_scale_y = ((float)gl.bbox.y2 - (float)gl.bbox.y1) / (float)gl.max_bands;
-            v->band_offset_x = (float)gl.bbox.x1; // TOOD
-            v->band_offset_y = (float)gl.bbox.y1; // TOOD
+            v->band_offset_x = (float)gl.bbox.x1;
+            v->band_offset_y = (float)gl.bbox.y1;
             v->r = 1.0f; v->g = 1.0f; v->b = 1.0f; v->a = 1.0f;
             vertex_count += 1;
         }
@@ -1328,7 +1329,7 @@ int main(int argc, char* argv[])
     (void)argc;
 #endif
 
-    char* input_path = ".\\out\\OpenSans-Regular.ttf"; //argv[1];
+    char* input_path = ".\\out\\JetBrainsMonoNerdFontMono-ExtraBold.ttf"; //argv[1];
     // char* output_path = argv[2];
 
     FILE* f = fopen(input_path, "rb");
@@ -1362,7 +1363,7 @@ int main(int argc, char* argv[])
     stbtt_GetFontBoundingBox(&info, &font.bbox.x1, &font.bbox.y1, &font.bbox.x2, &font.bbox.y2);
 
     int32_t processed_codepoints = 0;
-    for (size_t i = 32;i < 127/*ARRAY_SIZE(codepoints_to_process)*/;++i)
+    for (size_t i = 32;i < 0x68/*ARRAY_SIZE(codepoints_to_process)*/;++i)
     {
         Glyph gl = {0};
         gl.cp = i;//codepoints_to_process[i];
@@ -1429,7 +1430,7 @@ int main(int argc, char* argv[])
         glClearColor(0.0, 0.0, 0.0, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        draw_text(&rd, &font, 90, 100, 500, "q");
+        draw_text(&rd, &font, 90, 100, 50.0, "0123456789");
         // draw_text(&rd, &font, 90, 250, 150.0f, "Hello World!");
         // draw_text(&rd, &font, 90, 250 - 25.0f, 25.0f, "A complete success");
         // draw_text(&rd, &font, 90, 250 - 25.0f - 50.0f, 50.0f, "QC");

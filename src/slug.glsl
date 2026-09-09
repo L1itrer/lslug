@@ -50,9 +50,9 @@ vec2 slug_dilute(vec4 pos, vec4 tex, vec4 jac, mat4 m, vec2 dim, out vec2 vpos)
 
 void main()
 {
-    vec2 p = in_position.xy;
-    //v_texcoord = slug_dilute(in_position, in_tex, in_jac, mvp, viewport, p);
-    v_texcoord = in_tex.xy;
+    vec2 p;//= in_position.xy;
+    v_texcoord = slug_dilute(in_position, in_tex, in_jac, mvp, viewport, p);
+    //v_texcoord = in_tex.xy;
 #if 1
     v_position.x = p.x * mvp[0].x + p.y * mvp[0].y + mvp[0].w;
     v_position.y = p.x * mvp[1].x + p.y * mvp[1].y + mvp[1].w;
@@ -184,7 +184,7 @@ float slug_render(vec2 em_render_coord, ivec4 glyph, vec4 band_transform)
     float xwgt = 0.0;
 
     uvec2 h_band_data = uvec2(texelFetch(band_texture, ivec2(glyph_loc.x + band_idx.y, glyph_loc.y), 0).xy);
-    ivec2 h_band_loc = calc_band_loc(ivec2(glyph_loc.x + band_idx.y, glyph_loc.y), h_band_data.y);
+    ivec2 h_band_loc = calc_band_loc(ivec2(glyph_loc.x, glyph_loc.y), h_band_data.y);
 
     for (uint curve_idx = 0U; curve_idx < h_band_data.x;curve_idx += 1U)
     {
@@ -221,7 +221,7 @@ float slug_render(vec2 em_render_coord, ivec4 glyph, vec4 band_transform)
     float ywgt = 0.0;
 
     uvec2 v_band_data = texelFetch(band_texture, ivec2(glyph_loc.x + band_max.y + 1 + band_idx.x, glyph_loc.y), 0).xy;
-    ivec2 v_band_loc = calc_band_loc(ivec2(glyph_loc.x + band_idx.x + 1 + band_max.y, glyph_loc.y), v_band_data.y);
+    ivec2 v_band_loc = calc_band_loc(ivec2(glyph_loc.x, glyph_loc.y), v_band_data.y);
 
     for (uint curve_idx = 0U; curve_idx < v_band_data.x;curve_idx += 1U)
     {
