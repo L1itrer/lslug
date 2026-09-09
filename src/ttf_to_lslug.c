@@ -7,15 +7,6 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <math.h>
-
-#define LA_IMPLEMENTATION
-#include "la.h"
-
-#include "glad.h"
-#define RGFW_OPENGL
-#define RGFW_IMPLEMENTATION
-#include "RGFW.h"
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
@@ -23,8 +14,6 @@
 #define Clamp(A,X,B) (((X)<(A))?(A):((X)>(B))?(B):(X))
 
 #define LSLUG_VERSION 1
-
-#define FLOAT16_ASSERT_ON_OVERFLOW 1
 
 #define WINDOW_WIDTH  960
 #define WINDOW_HEIGHT 540
@@ -42,17 +31,6 @@
     } while (0)
 
 #define ARRAY_SIZE(arr) (sizeof(arr)/sizeof(arr[0]))
-
-int32_t codepoints_to_process[] = {
-    '$', '&', '*', '%',
-    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'o', 'p', 'r', 's', 't', 'y', 'z',
-    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'O', 'P', 'R', 'S', 'T', 'Y', 'Z',
-};
-
-#define PADDING_X 30
-#define PADDING_Y 30
-
-
 
 void print_usage(void)
 {
@@ -90,15 +68,6 @@ struct Curve
     Vec2 p1, p2, p3;
 };
 
-Curve* g_curves = NULL;
-
-// typedef struct Band_Component Band_Component;
-// struct Band_Component
-// {
-//     int32_t idx;
-//     int32_t count;
-// };
-
 typedef struct Int_Array Int_Array;
 struct Int_Array
 {
@@ -106,7 +75,6 @@ struct Int_Array
     size_t count;
     size_t capacity;
 };
-
 
 typedef struct Bands Bands;
 struct Bands
@@ -292,56 +260,6 @@ union Convert_Float_U32
     float f;
     uint32_t u;
 };
-
-#if 0
-
-// shamelessly copied from jai's Float16 module
-float16_t f32_to_f16(float f)
-{
-    const uint32_t f32infty = 255ul << 23;
-    const uint32_t f16infty = 31ul  << 23;
-
-    const float magic = 0x07800000;
-    const uint32_t sign_mask = 0x80000000;
-    const uint32_t round_mask = 0xfffff000;
-
-    Convert_Float_To_U32 in;
-    in.f = f;
-    uint32_t sign = in.u & sign_mask;
-    in.u ^= sign;
-
-    float16_t o = 0;
-
-    // NOTE all the integer compares in this function can be safely
-    // compiled into signed compares since all operands are below
-    // 0x80000000. Important if you want fast straight SSE2 code
-    // (since there's no unsigned PCMPGTD).
-
-    if (in.u >= f32infty)
-    {
-        o = (in.u > f32infty) ? 0x7e00 : 0x7c00; // NaN->qNaN and Inf->Inf
-    }
-    else
-    { // (De)normalized number or zero
-        in.u &= round_mask;
-        in.f *= magic;
-        in.u -= round_mask;
-        if (in.u > f16infty)
-        {
-            in.u = f16infty; // Clamp to signed infinity if overflowed.
-            #if FLOAT16_ASSERT_ON_OVERFLOW
-            fprintf(stderr, "Input value for target %f\n to large", f);
-                assert(false && "Input value to larget for float16 and overflowed");
-            #endif
-        }
-
-        o = in.u >> 13; // Take the bits!
-    }
-
-    o |= (sign >> 16);
-    return o;
-}
-#endif
 
 float fmin3(float a, float b, float c)
 {
@@ -637,12 +555,6 @@ bool process_codepoint(Slug_Font* font, stbtt_fontinfo* info, int32_t codepoint,
     for (int j = 0;j < vert_count;++j)
     {
         stbtt_vertex v = verticies[j];
-        // TODO: actually does stb_truetype already use y-is-up?
-        // transform to y-is-up coordinates
-        //Vec2 p = {v.x, (int16_t)gl->bbox.y2 - v.y + (int16_t)gl->bbox.y1};
-        //Vec2 c = {v.cx, (int16_t)gl->bbox.y2 - v.cy + (int16_t)gl->bbox.y1};
-        //Vec2 p = {v.x, v.y};
-        //Vec2 c = {v.cx, v.cy};
         int16_t x = v.x;
         int16_t y = v.y;
         int16_t cx = v.cx;
@@ -726,6 +638,9 @@ end:
 }
 
 #if 0
+
+#define PADDING_X 30
+#define PADDING_Y 30
 
 #define RasterSomething(name) Image name(Slug_Font* font, Glyph* gl, Vector2 translate, Vector2 size)
 
@@ -1007,302 +922,55 @@ void raster_single_glyph_atlas(Slug_Font* font, Glyph* gl, const char* path)
     UnloadImage(img);
 }
 
+// SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIDDEN);
+// InitWindow(100, 100, "Dummy");
+//raster_glyph_atlas(&font, "out\\atlas.png");
+// for (size_t i = 0;i < font.glyphs.count; ++i)
+// {
+//     char buffer[1024] = {0};
+//     Glyph* gl = &font.glyphs.items[i];
+//     snprintf(buffer, 1024, "./out/osr_%02d.png", gl->cp);
+//     raster_single_glyph_atlas(&font, gl, buffer);
+// }
+
 #endif
 
-bool shader_compile_specific(uint32_t* return_handle, char* source, uint32_t kind)
+int32_t lslug_process_codepoint_range(Slug_Font* font, Bytes data, int32_t start_range, int32_t end_range)
 {
-    uint32_t shader = glCreateShader(kind);
+    stbtt_fontinfo info = {0};
 
-    glShaderSource(shader, 1, &source, NULL);
-    glCompileShader(shader);
-
-    GLint success = 0;
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-    if (!success)
+    if (!stbtt_InitFont(&info, data.data, 0))
     {
-        GLint length = 0;
-        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
-        length += 1;
-        char* error_log = calloc(length, 1);
-
-        glGetShaderInfoLog(shader, length, NULL, error_log);
-
-        fprintf(stderr, "--------------------------\n");
-        fprintf(stderr, "%s", error_log);
-        fprintf(stderr, "--------------------------\n\n");
-        free(error_log);
-        return false;
+        fprintf(stderr, "Could not parse input ttf data\n");
+        return 1;
     }
 
-    *return_handle = shader;
-    return true;
-}
+    font->em_scale = stbtt_ScaleForMappingEmToPixels(&info, 1.0);
 
-bool shader_compile(uint32_t* return_shader, const char* path)
-{
-    FILE* f = fopen(path, "rb");
-    if (f == NULL) 
+
+    stbtt_GetFontVMetrics(&info, &font->ascent, &font->descent, &font->line_gap);
+    stbtt_GetFontBoundingBox(&info, &font->bbox.x1, &font->bbox.y1, &font->bbox.x2, &font->bbox.y2);
+
+    int32_t processed_codepoints = 0;
+    for (int32_t i = start_range;i < end_range;++i)
     {
-        fprintf(stderr, "Could not load shader %s\n", path);
-        return false;
-    }
-    Bytes data = try_read_entire_file(f);
-    assert(data.data);
-
-    const size_t buffer_size = (1<<16);
-    char* buffer = calloc(buffer_size, 1);
-
-    snprintf(buffer, buffer_size, "#version 330 core\n#define VERTEX_SHADER 1\n%.*s", (int)data.count, data.data);
-    uint32_t frag = 0, vert = 0;
-    
-    bool vok = shader_compile_specific(&vert, buffer, GL_VERTEX_SHADER);
-    memset(buffer, 0, buffer_size);
-    snprintf(buffer, buffer_size, "#version 330 core\n#define FRAGMENT_SHADER 1\n%.*s", (int)data.count, data.data);
-    bool fok = shader_compile_specific(&frag, buffer, GL_FRAGMENT_SHADER);
-    free(buffer);
-
-    if (!fok || !vok) return false;
-
-    uint32_t shader = glCreateProgram();
-    glAttachShader(shader, vert);
-    glAttachShader(shader, frag);
-    glLinkProgram(shader);
-
-    glDeleteShader(vert);
-    glDeleteShader(frag);
-    int32_t success = 0;
-    glGetProgramiv(shader, GL_LINK_STATUS, &success);
-    if (!success)
-    {
-        GLint length = 0;
-        glGetProgramiv(shader, GL_INFO_LOG_LENGTH, &length);
-        length += 1;
-        char* error_log = calloc(length, 1);
-
-        glGetProgramInfoLog(shader, length, NULL, error_log);
-
-        fprintf(stderr, "%s\n", error_log);
-        free(error_log);
-        glDeleteProgram(shader);
-        return false;
-    }
-
-    *return_shader = shader;
-
-    return true;
-}
-
-typedef struct Slug_Vertex Slug_Vertex;
-struct Slug_Vertex
-{
-    float pos_x, pos_y, norm_x, norm_y;
-    float tex_x, tex_y, packed_loc, max_band_indecies;
-    float jac_00, jac_01, jac_10, jac_11;
-    float band_scale_x, band_scale_y, band_offset_x, band_offset_y;
-    float r, g, b, a;
-};
-
-M4f m4f_translate(float x, float y, float z)
-{
-    M4f m = m4f_id();
-    m.m[3][0] = x;
-    m.m[3][1] = y;
-    m.m[3][2] = z;
-    return m;
-}
-
-M4f m4f_scale(float scale)
-{
-    M4f m = {0};
-    m.m[0][0] = scale;
-    m.m[1][1] = scale;
-    m.m[2][2] = scale;
-    m.m[3][3] = 1.0f;
-    return m;
-}
-
-/*
-I cannot name the params just near and far because i get this bizzare error:
-../src/ttf_to_lslug.c(1121,82): warning: omitting the parameter name in a function definition is a C23 extension     
-      [-Wc23-extensions]
- 1121 | M4f m4f_orthographic(float left, float right, float bottom, float top, float near, float far)
-
-Probably some library takes the names far and near for reasons
-*/
-M4f m4f_orthographic(float left, float right, float bottom, float top, float near_, float far_)
-{
-    M4f m = {0};
-    m._11 = 2.0f/(right - left);
-    m._22 = 2.0f/(top - bottom);
-    m._33 = -2.0f/(far_ - near_);
-    m._14 = -1.0f * (right + left) / (right - left); 
-    m._24 = -1.0f * (top + bottom) / (top - bottom);
-    m._34 = -1.0f * (far_ + near_) / (far_ - near_);
-    m._44 = 1.0f;
-    return m;
-}
-
-typedef struct Render_State Render_State;
-struct Render_State
-{
-    uint32_t text_shader;
-    uint32_t text_vao, text_vbo;
-    uint32_t band_texture, curve_texture;
-};
-
-#define MAX_TEXT 128
-#define VERTECIES_PER_GLYPH 6
-
-bool init_render_state(Render_State* rd, Slug_Font* font)
-{
-    bool result = shader_compile(&rd->text_shader, "./src/slug.glsl");
-    if (result)
-    {
-        glGenTextures(1, &rd->band_texture);
-        glBindTexture(GL_TEXTURE_2D, rd->band_texture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RG16UI, TEXEL_WIDTH, font->band.count, 0, GL_RG_INTEGER, GL_UNSIGNED_SHORT, font->band.items);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-        int remainder = TEXEL_WIDTH - (font->curves.count % TEXEL_WIDTH);
-        for (int i = 0;i < remainder;++i)
+        Glyph gl = {0};
+        gl.cp = i;//codepoints_to_process[i];
+        if (!process_codepoint(font, &info, gl.cp, &gl))
         {
-            Curve_Component cc = {0};
-            da_append(&font->curves, cc);
+            fprintf(stderr, "Could not process codepoint 0x%x\n", gl.cp);
         }
-        if (!(font->curves.count % TEXEL_WIDTH == 0))
+        else
         {
-            printf("curves count is = %zu, remainder is = %d\n", font->curves.count, remainder);
-            assert(false);
+            da_append(&font->glyphs, gl);
+            processed_codepoints += 1;
         }
-        glGenTextures(1, &rd->curve_texture);
-        glBindTexture(GL_TEXTURE_2D, rd->curve_texture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16I, TEXEL_WIDTH, font->curves.count/TEXEL_WIDTH, 0, GL_RGBA_INTEGER, GL_SHORT, font->curves.items);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-        glGenVertexArrays(1, &rd->text_vao);
-        glGenBuffers(1, &rd->text_vbo);
-        glBindVertexArray(rd->text_vao);
-        glBindBuffer(GL_ARRAY_BUFFER, rd->text_vbo);
-        glBufferData(GL_ARRAY_BUFFER, MAX_TEXT * VERTECIES_PER_GLYPH * sizeof(Slug_Vertex), NULL, GL_DYNAMIC_DRAW);
-
-
-        glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)0);
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(4 * sizeof(float)));
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(8 * sizeof(float)));
-        glEnableVertexAttribArray(2);
-        glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(12 * sizeof(float)));
-        glEnableVertexAttribArray(3);
-        glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(16 * sizeof(float)));
-        glEnableVertexAttribArray(4);
     }
-
-    return result;
-}
-
-void draw_text(Render_State* rd, Slug_Font* font, float x, float y, float size, char* text)
-{
-    size_t len = strlen(text);
-
-    Slug_Vertex* verticies = calloc(len * VERTECIES_PER_GLYPH, sizeof(Slug_Vertex));
-
-    int32_t vertex_count = 0;
-    float cursor = x;
-
-    float n = 0.70710678f;
-
-    float scale = font->em_scale * size;
-    for (size_t j = 0;j < len;++j)
-    {
-        char c = text[j];
-        Glyph gl = font->glyphs.items[c - 32];
-        if (c == ' ')
-        {
-            cursor += gl.advance * scale;
-            continue;
-        }
-
-        float ex1 = (float)gl.bbox.x1;
-        float ex2 = (float)gl.bbox.x2;
-        float ey1 = (float)gl.bbox.y1;
-        float ey2 = (float)gl.bbox.y2;
-
-        float ox1 = ex1 * scale + cursor;
-        float ox2 = ex2 * scale + cursor;
-        float oy1 = ey1 * scale + y;
-        float oy2 = ey2 * scale + y;
-
-        Convert_Float_U32 packed_loc;
-        Convert_Float_U32 packed_band_info;
-        packed_loc.u = ((uint32_t)gl.band_loc_y << 16) | (uint32_t)gl.band_loc_x;
-        packed_band_info.u = ((uint32_t)(gl.max_bands-1) << 16) | (uint32_t)(gl.max_bands-1);
-
-        // tl, bl, br, tl, tr, br
-        float positions_x[6] = {ox1, ox1, ox2, ox1, ox2, ox2};
-        float positions_y[6] = {oy2, oy1, oy1, oy2, oy2, oy1};
-        float norms_x    [6] = { -n,  -n,   n,  -n,   n,   n};
-        float norms_y    [6] = {  n,  -n,  -n,   n,   n,  -n};
-        float ems_x      [6] = {ex1, ex1, ex2, ex1, ex2, ex2};
-        float ems_y      [6] = {ey2, ey1, ey1, ey2, ey2, ey1};
-
-        for (int i = 0;i < VERTECIES_PER_GLYPH;++i)
-        {
-            Slug_Vertex* v = verticies + vertex_count;
-            v->pos_x = positions_x[i];
-            v->pos_y = positions_y[i];
-            v->norm_x = norms_x[i];
-            v->norm_y = norms_y[i];
-            v->tex_x = ems_x[i];
-            v->tex_y = ems_y[i];
-            v->packed_loc = packed_loc.f;
-            v->max_band_indecies = packed_band_info.f;
-            v->jac_00 = 1.0f; v->jac_01 = 0.0f;
-            v->jac_10 = 0.0f; v->jac_11 = 1.0f;
-            v->band_scale_x = ((float)gl.bbox.x2 - (float)gl.bbox.x1) / (float)gl.max_bands;
-            v->band_scale_y = ((float)gl.bbox.y2 - (float)gl.bbox.y1) / (float)gl.max_bands;
-            v->band_offset_x = (float)gl.bbox.x1;
-            v->band_offset_y = (float)gl.bbox.y1;
-            v->r = 1.0f; v->g = 1.0f; v->b = 1.0f; v->a = 1.0f;
-            vertex_count += 1;
-        }
-
-        cursor += (float)gl.advance * scale;
-    }
-
-    M4f model = m4f_mul(m4f_translate(x, y, 0.0f), m4f_scale(scale));
-
-    M4f projection = m4f_orthographic(0.0f, WINDOW_WIDTH, 0.0f, WINDOW_HEIGHT, 0.1f, 100.0f);
-
-    M4f mvp = projection;//m4f_mul(model, projection);
-    V2f viewport = (V2f){{WINDOW_WIDTH, WINDOW_HEIGHT}};
-    glUseProgram(rd->text_shader);
-    glUniformMatrix4fv(glGetUniformLocation(rd->text_shader, "mvp"), 1, false, mvp.c);
-    glUniform2fv(glGetUniformLocation(rd->text_shader, "viewport"), 1, viewport.c);
-
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, rd->curve_texture);
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, rd->band_texture);
-
-    glUniform1i(glGetUniformLocation(rd->text_shader, "curve_texture"), 0);
-    glUniform1i(glGetUniformLocation(rd->text_shader, "band_texture"),  1);
-
-    glBindVertexArray(rd->text_vao);
-    glBindBuffer(GL_ARRAY_BUFFER, rd->text_vbo);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, vertex_count * sizeof(Slug_Vertex), verticies);
-
-
-    glDrawArrays(GL_TRIANGLES, 0, vertex_count);
-
-    free(verticies);
+    return processed_codepoints;
 }
 
 int main(int argc, char* argv[])
 {
-#if 0
     for (int i = 0;i < argc;++i)
     {
         if
@@ -1324,14 +992,8 @@ int main(int argc, char* argv[])
         print_usage();
         return 1;
     }
-#else
-    (void)argv;
-    (void)argc;
-#endif
-
-    char* input_path = ".\\out\\JetBrainsMonoNerdFontMono-ExtraBold.ttf"; //argv[1];
-    // char* output_path = argv[2];
-
+    char* input_path  = argv[1];
+    char* output_path = argv[2];
     FILE* f = fopen(input_path, "rb");
     if (f == NULL)
     {
@@ -1339,45 +1001,19 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+
     Bytes ttf_bytes = try_read_entire_file(f);
     if (ttf_bytes.data == NULL)
     {
         fprintf(stderr, "Buy more ram lol\n");
         return 1;
     }
-    stbtt_fontinfo info = {0};
-    Slug_Font font = {0};
     fclose(f);
 
-    if (!stbtt_InitFont(&info, ttf_bytes.data, 0))
-    {
-        fprintf(stderr, "Could not parse file %s\n", input_path);
-        free(ttf_bytes.data);
-        return 1;
-    }
+    Slug_Font font = {0};
+    int32_t processed_codepoints = lslug_process_codepoint_range(&font, ttf_bytes, 32, 127);
+    free(ttf_bytes.data);
 
-    font.em_scale = stbtt_ScaleForMappingEmToPixels(&info, 1.0);
-
-
-    stbtt_GetFontVMetrics(&info, &font.ascent, &font.descent, &font.line_gap);
-    stbtt_GetFontBoundingBox(&info, &font.bbox.x1, &font.bbox.y1, &font.bbox.x2, &font.bbox.y2);
-
-    int32_t processed_codepoints = 0;
-    for (size_t i = 32;i < 0x68/*ARRAY_SIZE(codepoints_to_process)*/;++i)
-    {
-        Glyph gl = {0};
-        gl.cp = i;//codepoints_to_process[i];
-        if (!process_codepoint(&font, &info, gl.cp, &gl))
-        {
-            fprintf(stderr, "Could not process codepoint 0x%x\n", gl.cp);
-        }
-        else
-        {
-            printf("processed codepoint %x\n", gl.cp);
-            da_append(&font.glyphs, gl);
-            processed_codepoints += 1;
-        }
-    }
     printf("Processed %d glyphs, curves %zu\n", processed_codepoints, font.curves.count);
 
     for (size_t i = 0;i < font.allocated_per_texture.count;++i)
@@ -1385,60 +1021,12 @@ int main(int argc, char* argv[])
         printf("allocated in %zu = %d\n", i, font.allocated_per_texture.items[i]);
     }
 
-    // SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIDDEN);
-    // InitWindow(100, 100, "Dummy");
-    //raster_glyph_atlas(&font, "out\\atlas.png");
-    // for (size_t i = 0;i < font.glyphs.count; ++i)
-    // {
-    //     char buffer[1024] = {0};
-    //     Glyph* gl = &font.glyphs.items[i];
-    //     snprintf(buffer, 1024, "./out/osr_%02d.png", gl->cp);
-    //     raster_single_glyph_atlas(&font, gl, buffer);
-    // }
+    FILE* of = fopen(output_path, "wb");
+    if (of == NULL) {fprintf(stderr, "Could not open file %s for writing\n", output_path); return 1;}
+
+    fprintf(of, "LSLG");
+    fclose(of);
+
     printf("OK\n");
-
-    RGFW_glHints* hints = RGFW_getGlobalHints_OpenGL();
-    hints->debug = true;
-    RGFW_setGlobalHints_OpenGL(hints);
-
-    RGFW_window* window = RGFW_createWindow("Slug Font", 10, 10, WINDOW_WIDTH, WINDOW_HEIGHT, RGFW_windowAllowDND | RGFW_windowCenter | RGFW_windowOpenGL);
-    if (!window)
-    {
-        fprintf(stderr, "window creation\n");
-        return 1;
-    }
-
-    if (!gladLoadGLLoader((GLADloadproc)RGFW_getProcAddress_OpenGL))
-    {
-        fprintf(stderr, "Coult not load opengl\n");
-        return 1;
-    }
-
-    Render_State rd = {0};
-    if (!init_render_state(&rd, &font))
-    {
-        return 1;
-    }
-
-    while (RGFW_window_shouldClose(window) == RGFW_FALSE)
-    {
-        RGFW_event event;
-        while (RGFW_window_checkEvent(window, &event))
-        {
-            if (event.type == RGFW_quit) break;
-        }
-        glClearColor(0.0, 0.0, 0.0, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        draw_text(&rd, &font, 90, 100, 50.0, "0123456789");
-        // draw_text(&rd, &font, 90, 250, 150.0f, "Hello World!");
-        // draw_text(&rd, &font, 90, 250 - 25.0f, 25.0f, "A complete success");
-        // draw_text(&rd, &font, 90, 250 - 25.0f - 50.0f, 50.0f, "QC");
-
-        RGFW_window_swapBuffers_OpenGL(window);
-    }
-
     return 0;
 }
-
-#include "glad.c"
