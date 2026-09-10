@@ -3,15 +3,17 @@
 #endif
 #include <stdio.h>
 #include <stdlib.h>
-#define HT_IMPLEMENTATION
-#include "ht.h"
 #define LA_IMPLEMENTATION
 #include "la.h"
-#include "glad.h"
 
+#include "glad.h"
 #define RGFW_OPENGL
 #define RGFW_IMPLEMENTATION
 #include "RGFW.h"
+
+
+#define HT_IMPLEMENTATION
+#include "ht.h"
 
 
 #define MAX_TEXT 128
@@ -258,8 +260,8 @@ bool load_dynamic_font(Dynamic_Font* font, Bytes lslug)
         Glyph gl = {0};
         int32_t cp = i32_deserialize(lslug, &cursor);
         gl.x1 = i32_deserialize(lslug, &cursor);
-        gl.x2 = i32_deserialize(lslug, &cursor);
         gl.y1 = i32_deserialize(lslug, &cursor);
+        gl.x2 = i32_deserialize(lslug, &cursor);
         gl.y2 = i32_deserialize(lslug, &cursor);
         gl.advance = i32_deserialize(lslug, &cursor);
         gl.left_side_bearing = i32_deserialize(lslug, &cursor);
@@ -325,6 +327,7 @@ bool load_dynamic_font(Dynamic_Font* font, Bytes lslug)
         glEnableVertexAttribArray(3);
         glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(16 * sizeof(float)));
         glEnableVertexAttribArray(4);
+        glUseProgram(0);
     }
     free(bands);
     free(curves);
@@ -491,7 +494,6 @@ int main(void)
         fprintf(stderr, "Coult not load opengl\n");
         return 1;
     }
-    uint32_t shader = glCreateShader(GL_VERTEX_SHADER);
 
     FILE* f = fopen("opensans.lslg", "rb");
     assert(f != NULL);

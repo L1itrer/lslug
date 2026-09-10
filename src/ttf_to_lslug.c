@@ -1130,13 +1130,13 @@ int main(int argc, char* argv[])
     //serialize curves
     b4_serialize(of, i32_to_le_bytes((int32_t)font.curves.count));// general curve count
     b4_serialize(of, i32_to_le_bytes(TEXEL_WIDTH)); // curve texture width
-    b4_serialize(of, i32_to_le_bytes((int32_t)font.curves.count / TEXEL_WIDTH)); // curve texture height
+    b4_serialize(of, i32_to_le_bytes((int32_t)(font.curves.count / TEXEL_WIDTH)+1)); // curve texture height
     for (size_t i = 0;i < font.curves.count;++i)
     {
         Curve_Component cc = font.curves.items[i];
         b2_serialize(of, i16_to_le_bytes(cc.x1));
-        b2_serialize(of, i16_to_le_bytes(cc.x2));
         b2_serialize(of, i16_to_le_bytes(cc.y1));
+        b2_serialize(of, i16_to_le_bytes(cc.x2));
         b2_serialize(of, i16_to_le_bytes(cc.y2));
     }
 
