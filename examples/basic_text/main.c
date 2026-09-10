@@ -1,17 +1,162 @@
+#ifdef _WIN32
+#    define _CRT_SECURE_NO_WARNINGS
+#endif
+#include <stdio.h>
+#include <stdlib.h>
+#define HT_IMPLEMENTATION
+#include "ht.h"
 #define LA_IMPLEMENTATION
 #include "la.h"
-
 #include "glad.h"
+
 #define RGFW_OPENGL
 #define RGFW_IMPLEMENTATION
 #include "RGFW.h"
 
 
-bool shader_compile_specific(uint32_t* return_handle, char* source, uint32_t kind)
+#define MAX_TEXT 128
+#define VERTECIES_PER_GLYPH 6
+
+
+#define WINDOW_WIDTH  960
+#define WINDOW_HEIGHT 540
+
+typedef struct Slug_Vertex Slug_Vertex;
+struct Slug_Vertex
+{
+    float pos_x, pos_y, norm_x, norm_y;
+    float tex_x, tex_y, packed_loc, max_band_indecies;
+    float jac_00, jac_01, jac_10, jac_11;
+    float band_scale_x, band_scale_y, band_offset_x, band_offset_y;
+    float r, g, b, a;
+};
+
+typedef struct Bytes Bytes;
+struct Bytes
+{
+    uint8_t* data;
+    size_t count;
+};
+
+typedef union Convert_Float_U32 Convert_Float_U32;
+union Convert_Float_U32
+{
+    float f;
+    uint32_t u;
+};
+
+typedef struct Glyph Glyph;
+struct Glyph
+{
+    int16_t band_loc_x, band_loc_y, band_count;
+    int32_t x1, y1, x2, y2;
+    int32_t advance, left_side_bearing;
+};
+
+typedef Ht(int32_t, Glyph) Glyphs;
+
+typedef struct Dynamic_Font Dynamic_Font;
+struct Dynamic_Font
+{
+    float em_scale;
+    int32_t ascent;
+    int32_t descent, line_gap;
+    int32_t x1, y1, x2, y2; // bounding box
+    uint32_t band_texture, curve_texture;
+    uint32_t vao, vbo;
+    uint32_t shader; // TODO: it's dumb to store the shader on the font, but for now...
+    Glyphs glyphs;
+};
+
+Bytes try_read_entire_file(FILE* f)
+{
+    Bytes bytes = {0};
+    fseek(f, 0, SEEK_END);
+    long long file_size = ftell(f);
+    rewind(f);
+    bytes.data = (uint8_t*)malloc(file_size);
+    bytes.count = fread(bytes.data, 1, file_size, f);
+    assert((long long)bytes.count == file_size);
+    return bytes;
+}
+
+#define BytesStruct(count) \
+typedef struct B##count B##count;\
+struct B##count {uint8_t b[count];}
+
+BytesStruct(4);
+BytesStruct(2);
+
+B4 b4_deserialize(Bytes data, int32_t* cursor)
+{
+    int32_t c = *cursor;
+    B4 result = {0};
+    for (int i = 0;i < 4;++i)
+    {
+        assert((size_t)(c + i) < data.count);
+        result.b[i] = data.data[c + i];
+    }
+    *cursor += 4;
+    return result;
+}
+
+
+B2 b2_deserialize(Bytes data, int32_t* cursor)
+{
+    int32_t c = *cursor;
+    B2 result = {0};
+    for (int i = 0;i < 2;++i)
+    {
+        assert((size_t)(c + i) < data.count);
+        result.b[i] = data.data[c + i];
+    }
+    *cursor += 2;
+    return result;
+}
+
+int32_t i32_deserialize(Bytes data, int32_t* cursor)
+{
+    B4 i32le = b4_deserialize(data, cursor);
+    int32_t result = 0;
+    result |= (int32_t)i32le.b[0];
+    result |= (int32_t)i32le.b[1] << 8;
+    result |= (int32_t)i32le.b[2] << 16;
+    result |= (int32_t)i32le.b[3] << 24;
+    return result;
+}
+
+float f32_deserialize(Bytes data, int32_t* cursor)
+{
+    // TODO: actual deserialization
+    B4 f32le = b4_deserialize(data, cursor);
+    float result = *(float*)&f32le;
+    return result;
+}
+
+int16_t i16_deserialize(Bytes data, int32_t* cursor)
+{
+    B2 i16le = b2_deserialize(data, cursor);
+    int16_t result = 0;
+    result |= (int32_t)i16le.b[0];
+    result |= (int32_t)i16le.b[1] << 8;
+    return result;
+}
+
+uint16_t u16_deserialize(Bytes data, int32_t* cursor)
+{
+    B2 u16le = b2_deserialize(data, cursor);
+    int16_t result = 0;
+    result |= (int32_t)u16le.b[0];
+    result |= (int32_t)u16le.b[1] << 8;
+    return result;
+}
+
+bool shader_compile_specific(uint32_t* return_handle, char* _source, uint32_t kind)
 {
     uint32_t shader = glCreateShader(kind);
 
-    glShaderSource(shader, 1, &source, NULL);
+    char* source = _source;
+    glShaderSource(shader, 1, (const char* const*)&source, NULL);
     glCompileShader(shader);
 
     GLint success = 0;
@@ -90,15 +235,103 @@ bool shader_compile(uint32_t* return_shader, const char* path)
     return true;
 }
 
-typedef struct Slug_Vertex Slug_Vertex;
-struct Slug_Vertex
+bool load_dynamic_font(Dynamic_Font* font, Bytes lslug)
 {
-    float pos_x, pos_y, norm_x, norm_y;
-    float tex_x, tex_y, packed_loc, max_band_indecies;
-    float jac_00, jac_01, jac_10, jac_11;
-    float band_scale_x, band_scale_y, band_offset_x, band_offset_y;
-    float r, g, b, a;
-};
+    char buffer[8] = {0};
+    int32_t cursor = 0;
+    B4 str = b4_deserialize(lslug, &cursor);
+    memcpy(buffer, str.b, 4);
+    int32_t version = i32_deserialize(lslug, &cursor);
+    assert(version == 1);
+    font->em_scale = f32_deserialize(lslug, &cursor);
+    printf("em_scale %f\n", font->em_scale);
+    font->ascent = i32_deserialize(lslug, &cursor);
+    font->descent = i32_deserialize(lslug, &cursor);
+    font->line_gap = i32_deserialize(lslug, &cursor);
+    font->x1 = i32_deserialize(lslug, &cursor);
+    font->y1 = i32_deserialize(lslug, &cursor);
+    font->x2 = i32_deserialize(lslug, &cursor);
+    font->y2 = i32_deserialize(lslug, &cursor);
+    int32_t glyphs_count = i32_deserialize(lslug, &cursor);
+    for (int32_t i = 0;i < glyphs_count;++i)
+    {
+        Glyph gl = {0};
+        int32_t cp = i32_deserialize(lslug, &cursor);
+        gl.x1 = i32_deserialize(lslug, &cursor);
+        gl.x2 = i32_deserialize(lslug, &cursor);
+        gl.y1 = i32_deserialize(lslug, &cursor);
+        gl.y2 = i32_deserialize(lslug, &cursor);
+        gl.advance = i32_deserialize(lslug, &cursor);
+        gl.left_side_bearing = i32_deserialize(lslug, &cursor);
+        gl.band_loc_x = i16_deserialize(lslug, &cursor);
+        gl.band_loc_y = i16_deserialize(lslug, &cursor);
+        gl.band_count = i16_deserialize(lslug, &cursor);
+
+        *ht_put(&font->glyphs, cp) = gl;
+    }
+    int32_t curves_count = i32_deserialize(lslug, &cursor);
+    int32_t curves_texture_width = i32_deserialize(lslug, &cursor);
+    int32_t curves_texture_height = i32_deserialize(lslug, &cursor);
+    // 4 components per curve, width * height
+    // width * height is almost certainly more then count
+    // but textures need to be aligned to a certain width anyway
+    // so there will be some padding
+    int16_t* curves = calloc(curves_texture_width * curves_texture_height * 4, sizeof(int16_t));
+
+    for (int32_t i = 0;i < curves_count*4;++i)
+    {
+        curves[i] = i16_deserialize(lslug, &cursor);
+    }
+    int32_t band_count = i32_deserialize(lslug, &cursor);
+    int32_t band_texture_width = i32_deserialize(lslug, &cursor);
+    int32_t band_texture_height = i32_deserialize(lslug, &cursor);
+
+    uint16_t* bands = calloc(band_texture_width * band_texture_height * 2, sizeof(uint16_t));
+    for (int32_t i = 0;i < band_count*2;++i)
+    {
+        bands[i] = u16_deserialize(lslug, &cursor);
+    }
+
+    bool ok = shader_compile(&font->shader, "slug.glsl");
+    if (ok)
+    {
+        glUseProgram(font->shader);
+        glGenTextures(1, &font->band_texture);
+        glBindTexture(GL_TEXTURE_2D, font->band_texture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RG16UI, band_texture_width, band_texture_height, 0, GL_RG_INTEGER, GL_UNSIGNED_SHORT, bands);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+        glGenTextures(1, &font->curve_texture);
+        glBindTexture(GL_TEXTURE_2D, font->curve_texture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16I, curves_texture_width, curves_texture_height, 0, GL_RGBA_INTEGER, GL_SHORT, curves);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+        glGenVertexArrays(1, &font->vao);
+        glGenBuffers(1, &font->vbo);
+        glBindVertexArray(font->vao);
+        glBindBuffer(GL_ARRAY_BUFFER, font->vbo);
+        glBufferData(GL_ARRAY_BUFFER, MAX_TEXT * VERTECIES_PER_GLYPH * sizeof(Slug_Vertex), NULL, GL_DYNAMIC_DRAW);
+
+
+        glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)0);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(4 * sizeof(float)));
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(8 * sizeof(float)));
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(12 * sizeof(float)));
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(16 * sizeof(float)));
+        glEnableVertexAttribArray(4);
+    }
+    free(bands);
+    free(curves);
+    return true;
+}
+
+
 
 M4f m4f_translate(float x, float y, float z)
 {
@@ -140,68 +373,7 @@ M4f m4f_orthographic(float left, float right, float bottom, float top, float nea
     return m;
 }
 
-typedef struct Render_State Render_State;
-struct Render_State
-{
-    uint32_t text_shader;
-    uint32_t text_vao, text_vbo;
-    uint32_t band_texture, curve_texture;
-};
-
-#define MAX_TEXT 128
-#define VERTECIES_PER_GLYPH 6
-
-bool init_render_state(Render_State* rd, Slug_Font* font)
-{
-    bool result = shader_compile(&rd->text_shader, "./src/slug.glsl");
-    if (result)
-    {
-        glGenTextures(1, &rd->band_texture);
-        glBindTexture(GL_TEXTURE_2D, rd->band_texture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RG16UI, TEXEL_WIDTH, font->band.count, 0, GL_RG_INTEGER, GL_UNSIGNED_SHORT, font->band.items);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-        int remainder = TEXEL_WIDTH - (font->curves.count % TEXEL_WIDTH);
-        for (int i = 0;i < remainder;++i)
-        {
-            Curve_Component cc = {0};
-            da_append(&font->curves, cc);
-        }
-        if (!(font->curves.count % TEXEL_WIDTH == 0))
-        {
-            printf("curves count is = %zu, remainder is = %d\n", font->curves.count, remainder);
-            assert(false);
-        }
-        glGenTextures(1, &rd->curve_texture);
-        glBindTexture(GL_TEXTURE_2D, rd->curve_texture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16I, TEXEL_WIDTH, font->curves.count/TEXEL_WIDTH, 0, GL_RGBA_INTEGER, GL_SHORT, font->curves.items);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-        glGenVertexArrays(1, &rd->text_vao);
-        glGenBuffers(1, &rd->text_vbo);
-        glBindVertexArray(rd->text_vao);
-        glBindBuffer(GL_ARRAY_BUFFER, rd->text_vbo);
-        glBufferData(GL_ARRAY_BUFFER, MAX_TEXT * VERTECIES_PER_GLYPH * sizeof(Slug_Vertex), NULL, GL_DYNAMIC_DRAW);
-
-
-        glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)0);
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(4 * sizeof(float)));
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(8 * sizeof(float)));
-        glEnableVertexAttribArray(2);
-        glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(12 * sizeof(float)));
-        glEnableVertexAttribArray(3);
-        glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(16 * sizeof(float)));
-        glEnableVertexAttribArray(4);
-    }
-
-    return result;
-}
-
-void draw_text(Render_State* rd, Slug_Font* font, float x, float y, float size, char* text)
+void draw_text(Dynamic_Font* font, float x, float y, float size, char* text)
 {
     size_t len = strlen(text);
 
@@ -216,17 +388,19 @@ void draw_text(Render_State* rd, Slug_Font* font, float x, float y, float size, 
     for (size_t j = 0;j < len;++j)
     {
         char c = text[j];
-        Glyph gl = font->glyphs.items[c - 32];
+        Glyph* gl_ptr = ht_find(&font->glyphs, c);
+        if (gl_ptr == NULL) gl_ptr = ht_find(&font->glyphs, '?');
+        Glyph gl = *gl_ptr;
         if (c == ' ')
         {
             cursor += gl.advance * scale;
             continue;
         }
 
-        float ex1 = (float)gl.bbox.x1;
-        float ex2 = (float)gl.bbox.x2;
-        float ey1 = (float)gl.bbox.y1;
-        float ey2 = (float)gl.bbox.y2;
+        float ex1 = (float)gl.x1;
+        float ex2 = (float)gl.x2;
+        float ey1 = (float)gl.y1;
+        float ey2 = (float)gl.y2;
 
         float ox1 = ex1 * scale + cursor;
         float ox2 = ex2 * scale + cursor;
@@ -236,7 +410,7 @@ void draw_text(Render_State* rd, Slug_Font* font, float x, float y, float size, 
         Convert_Float_U32 packed_loc;
         Convert_Float_U32 packed_band_info;
         packed_loc.u = ((uint32_t)gl.band_loc_y << 16) | (uint32_t)gl.band_loc_x;
-        packed_band_info.u = ((uint32_t)(gl.max_bands-1) << 16) | (uint32_t)(gl.max_bands-1);
+        packed_band_info.u = ((uint32_t)(gl.band_count-1) << 16) | (uint32_t)(gl.band_count-1);
 
         // tl, bl, br, tl, tr, br
         float positions_x[6] = {ox1, ox1, ox2, ox1, ox2, ox2};
@@ -259,10 +433,10 @@ void draw_text(Render_State* rd, Slug_Font* font, float x, float y, float size, 
             v->max_band_indecies = packed_band_info.f;
             v->jac_00 = 1.0f; v->jac_01 = 0.0f;
             v->jac_10 = 0.0f; v->jac_11 = 1.0f;
-            v->band_scale_x = ((float)gl.bbox.x2 - (float)gl.bbox.x1) / (float)gl.max_bands;
-            v->band_scale_y = ((float)gl.bbox.y2 - (float)gl.bbox.y1) / (float)gl.max_bands;
-            v->band_offset_x = (float)gl.bbox.x1;
-            v->band_offset_y = (float)gl.bbox.y1;
+            v->band_scale_x = ((float)gl.x2 - (float)gl.x1) / (float)gl.band_count;
+            v->band_scale_y = ((float)gl.y2 - (float)gl.y1) / (float)gl.band_count;
+            v->band_offset_x = (float)gl.x1;
+            v->band_offset_y = (float)gl.y1;
             v->r = 1.0f; v->g = 1.0f; v->b = 1.0f; v->a = 1.0f;
             vertex_count += 1;
         }
@@ -276,20 +450,20 @@ void draw_text(Render_State* rd, Slug_Font* font, float x, float y, float size, 
 
     M4f mvp = projection;//m4f_mul(model, projection);
     V2f viewport = (V2f){{WINDOW_WIDTH, WINDOW_HEIGHT}};
-    glUseProgram(rd->text_shader);
-    glUniformMatrix4fv(glGetUniformLocation(rd->text_shader, "mvp"), 1, false, mvp.c);
-    glUniform2fv(glGetUniformLocation(rd->text_shader, "viewport"), 1, viewport.c);
+    glUseProgram(font->shader);
+    glUniformMatrix4fv(glGetUniformLocation(font->shader, "mvp"), 1, false, mvp.c);
+    glUniform2fv(glGetUniformLocation(font->shader, "viewport"), 1, viewport.c);
 
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, rd->curve_texture);
+    glBindTexture(GL_TEXTURE_2D, font->curve_texture);
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, rd->band_texture);
+    glBindTexture(GL_TEXTURE_2D, font->band_texture);
 
-    glUniform1i(glGetUniformLocation(rd->text_shader, "curve_texture"), 0);
-    glUniform1i(glGetUniformLocation(rd->text_shader, "band_texture"),  1);
+    glUniform1i(glGetUniformLocation(font->shader, "curve_texture"), 0);
+    glUniform1i(glGetUniformLocation(font->shader, "band_texture"),  1);
 
-    glBindVertexArray(rd->text_vao);
-    glBindBuffer(GL_ARRAY_BUFFER, rd->text_vbo);
+    glBindVertexArray(font->vao);
+    glBindBuffer(GL_ARRAY_BUFFER, font->vbo);
     glBufferSubData(GL_ARRAY_BUFFER, 0, vertex_count * sizeof(Slug_Vertex), verticies);
 
 
@@ -317,12 +491,16 @@ int main(void)
         fprintf(stderr, "Coult not load opengl\n");
         return 1;
     }
+    uint32_t shader = glCreateShader(GL_VERTEX_SHADER);
 
-    Render_State rd = {0};
-    if (!init_render_state(&rd, &font))
-    {
-        return 1;
-    }
+    FILE* f = fopen("opensans.lslg", "rb");
+    assert(f != NULL);
+    Bytes file = try_read_entire_file(f);
+    assert(file.data);
+    Dynamic_Font df = {0};
+    load_dynamic_font(&df, file);
+
+    free(file.data);
 
     while (RGFW_window_shouldClose(window) == RGFW_FALSE)
     {
@@ -335,14 +513,13 @@ int main(void)
         glClear(GL_COLOR_BUFFER_BIT);
 
         //draw_text(&rd, &font, 90, 100, 50.0, "0123456789");
-        draw_text(&rd, &font, 90, 250, 150.0f, "Hello World!");
-        draw_text(&rd, &font, 90, 250 - 25.0f, 25.0f, "A complete success");
-        draw_text(&rd, &font, 90, 250 - 25.0f - 50.0f, 50.0f, "QC");
+        draw_text(&df, 90, 250, 150.0f, "Hello World!");
+        draw_text(&df, 90, 250 - 25.0f, 25.0f, "A complete success");
+        draw_text(&df, 90, 250 - 25.0f - 50.0f, 50.0f, "QC");
 
         RGFW_window_swapBuffers_OpenGL(window);
     }
     return 0;
 }
-
 
 #include "glad.c"

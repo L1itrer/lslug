@@ -15,8 +15,6 @@
 
 #define LSLUG_VERSION 1
 
-#define WINDOW_WIDTH  960
-#define WINDOW_HEIGHT 540
 
 #define DA_INIT_CAP 256
 #define da_append(da, item)                                                          \
@@ -969,6 +967,82 @@ int32_t lslug_process_codepoint_range(Slug_Font* font, Bytes data, int32_t start
     return processed_codepoints;
 }
 
+#define BytesStruct(count) \
+typedef struct B##count B##count;\
+struct B##count {uint8_t b[count];}
+
+BytesStruct(4);
+BytesStruct(2);
+
+
+// assume little-endian pc for now
+B4 i32_to_le_bytes(int32_t num)
+{
+    B4 result = {0};
+    for (int32_t i = 0;i < (int32_t)sizeof(num);++i)
+    {
+        int32_t shifted = num >> i*8;
+        shifted &= 0xff;
+        uint8_t b = *(uint8_t*)&shifted;
+        result.b[i] = b;
+    }
+    return result;
+}
+
+B2 i16_to_le_bytes(int16_t num)
+{
+    B2 result = {0};
+    for (int16_t i = 0;i < (int16_t)sizeof(num);++i)
+    {
+        int16_t shifted = num >> i*8;
+        shifted &= 0xff;
+        uint8_t b = *(uint8_t*)&shifted;
+        result.b[i] = b;
+    }
+    return result;
+}
+
+B2 u16_to_le_bytes(uint16_t num)
+{
+    B2 result = {0};
+    for (uint16_t i = 0;i < (uint16_t)sizeof(num);++i)
+    {
+        uint16_t shifted = num >> i*8;
+        shifted &= 0xff;
+        uint8_t b = *(uint8_t*)&shifted;
+        result.b[i] = b;
+    }
+    return result;
+}
+
+B4 f32_to_le_bytes(float f)
+{
+    Convert_Float_U32 cvt;
+    cvt.f = f;
+    uint32_t num = cvt.u;
+    B4 result = {0};
+    for (uint32_t i = 0;i < (uint32_t)sizeof(num);++i)
+    {
+        uint32_t shifted = num >> i*8;
+        shifted &= 0xff;
+        uint8_t b = *(uint8_t*)&shifted;
+        result.b[i] = b;
+    }
+    return result;
+}
+
+void b4_serialize(FILE* f, B4 b)
+{
+    B4 copy = b;
+    fwrite(&copy, 4, 1, f);
+}
+
+void b2_serialize(FILE* f, B2 b)
+{
+    B2 copy = b;
+    fwrite(&copy, 2, 1, f);
+}
+
 int main(int argc, char* argv[])
 {
     for (int i = 0;i < argc;++i)
@@ -1020,11 +1094,66 @@ int main(int argc, char* argv[])
     {
         printf("allocated in %zu = %d\n", i, font.allocated_per_texture.items[i]);
     }
+    if (processed_codepoints == 0) return 0;
 
     FILE* of = fopen(output_path, "wb");
     if (of == NULL) {fprintf(stderr, "Could not open file %s for writing\n", output_path); return 1;}
 
     fprintf(of, "LSLG");
+    b4_serialize(of, i32_to_le_bytes(LSLUG_VERSION));
+    b4_serialize(of, f32_to_le_bytes(font.em_scale));
+    b4_serialize(of, i32_to_le_bytes(font.ascent));
+    b4_serialize(of, i32_to_le_bytes(font.descent));
+    b4_serialize(of, i32_to_le_bytes(font.line_gap));
+    b4_serialize(of, i32_to_le_bytes(font.bbox.x1));
+    b4_serialize(of, i32_to_le_bytes(font.bbox.y1));
+    b4_serialize(of, i32_to_le_bytes(font.bbox.x2));
+    b4_serialize(of, i32_to_le_bytes(font.bbox.y2));
+
+    // serialize glyph data
+    b4_serialize(of, i32_to_le_bytes((int32_t)font.glyphs.count));
+    for (size_t i = 0;i < font.glyphs.count;++i)
+    {
+        Glyph gl = font.glyphs.items[i];
+        b4_serialize(of, i32_to_le_bytes(gl.cp));
+        b4_serialize(of, i32_to_le_bytes(gl.bbox.x1));
+        b4_serialize(of, i32_to_le_bytes(gl.bbox.y1));
+        b4_serialize(of, i32_to_le_bytes(gl.bbox.x2));
+        b4_serialize(of, i32_to_le_bytes(gl.bbox.y2));
+        b4_serialize(of, i32_to_le_bytes(gl.advance));
+        b4_serialize(of, i32_to_le_bytes(gl.left_side_bearing));
+        b2_serialize(of, i16_to_le_bytes(gl.band_loc_x));
+        b2_serialize(of, i16_to_le_bytes(gl.band_loc_y));
+        b2_serialize(of, i16_to_le_bytes(gl.max_bands));
+    }
+
+    //serialize curves
+    b4_serialize(of, i32_to_le_bytes((int32_t)font.curves.count));// general curve count
+    b4_serialize(of, i32_to_le_bytes(TEXEL_WIDTH)); // curve texture width
+    b4_serialize(of, i32_to_le_bytes((int32_t)font.curves.count / TEXEL_WIDTH)); // curve texture height
+    for (size_t i = 0;i < font.curves.count;++i)
+    {
+        Curve_Component cc = font.curves.items[i];
+        b2_serialize(of, i16_to_le_bytes(cc.x1));
+        b2_serialize(of, i16_to_le_bytes(cc.x2));
+        b2_serialize(of, i16_to_le_bytes(cc.y1));
+        b2_serialize(of, i16_to_le_bytes(cc.y2));
+    }
+
+    b4_serialize(of, i32_to_le_bytes((int32_t)font.band.count * TEXEL_WIDTH));
+    b4_serialize(of, i32_to_le_bytes(TEXEL_WIDTH)); // band texture width
+    b4_serialize(of, i32_to_le_bytes((int32_t)font.band.count));
+
+    for (size_t j = 0;j < font.band.count;++j)
+    {
+        for (size_t i = 0;i < TEXEL_WIDTH;++i)
+        {
+            Band_Component bc = font.band.items[j].bc[i];
+            b2_serialize(of, u16_to_le_bytes(bc.x));
+            b2_serialize(of, u16_to_le_bytes(bc.y));
+        }
+    }
+
     fclose(of);
 
     printf("OK\n");
