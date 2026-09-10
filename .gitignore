@@ -2,6 +2,7 @@
 
 *.lib
 *.obj
+*.ilk
 *.pdb
 *.rdi
 *.o
