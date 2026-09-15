@@ -6,7 +6,8 @@ struct Vert_To_Frag {
     flat ivec4 glyph; // data x coord, data y coord, band max x, band max y
 };
 
-uniform mat4 mvp;
+//uniform mat4 mvp;
+uniform vec4 mvp[4];
 uniform vec2 viewport;
 
 #if VERTEX_SHADER
@@ -30,7 +31,7 @@ out vec2 v_texcoord;
 flat out vec4 v_banding;
 flat out ivec4 v_glyph;
 
-vec2 slug_dilute(vec4 pos, vec4 tex, vec4 jac, mat4 m, vec2 dim, out vec2 vpos)
+vec2 slug_dilute(vec4 pos, vec4 tex, vec4 jac, vec4 m[4], vec2 dim, out vec2 vpos)
 {
     vec2 n = normalize(pos.zw);
     float s = dot(m[3].xy, pos.xy) + m[3].w;
@@ -57,10 +58,14 @@ void main()
     v_position.x = p.x * mvp[0].x + p.y * mvp[0].y + mvp[0].w;
     v_position.y = p.x * mvp[1].x + p.y * mvp[1].y + mvp[1].w;
     // TODO: figura out coordinate systems
-    v_position.z = 1.0;//p.x * mvp[2].x + p.y * mvp[2].y + mvp[2].w;
+    v_position.z = p.x * mvp[2].x + p.y * mvp[2].y + mvp[2].w;
     v_position.w = p.x * mvp[3].x + p.y * mvp[3].y + mvp[3].w;
 #else
-    v_position = vec4(in_position.xy, -1.0, 1.0) * mvp;
+    v_position.x = p.x * mvp[0][0] + p.y * mvp[0][1] + mvp[0][3];
+    v_position.y = p.x * mvp[1][0] + p.y * mvp[1][1] + mvp[1][3];
+    // TODO: figura out coordinate systems
+    v_position.z = p.x * mvp[2][0] + p.y * mvp[2][1] + mvp[2][3];
+    v_position.w = p.x * mvp[3][0] + p.y * mvp[3][1] + mvp[3][3];
 #endif
 
     gl_Position = v_position;

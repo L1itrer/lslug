@@ -246,7 +246,6 @@ bool load_dynamic_font(Dynamic_Font* font, Bytes lslug)
     int32_t version = i32_deserialize(lslug, &cursor);
     assert(version == 1);
     font->em_scale = f32_deserialize(lslug, &cursor);
-    printf("em_scale %f\n", font->em_scale);
     font->ascent = i32_deserialize(lslug, &cursor);
     font->descent = i32_deserialize(lslug, &cursor);
     font->line_gap = i32_deserialize(lslug, &cursor);
@@ -331,7 +330,7 @@ bool load_dynamic_font(Dynamic_Font* font, Bytes lslug)
     }
     free(bands);
     free(curves);
-    return true;
+    return ok;
 }
 
 
@@ -339,19 +338,19 @@ bool load_dynamic_font(Dynamic_Font* font, Bytes lslug)
 M4f m4f_translate(float x, float y, float z)
 {
     M4f m = m4f_id();
-    m.m[3][0] = x;
-    m.m[3][1] = y;
-    m.m[3][2] = z;
+    m._14 = x;
+    m._24 = y;
+    m._34 = z;
     return m;
 }
 
 M4f m4f_scale(float scale)
 {
     M4f m = {0};
-    m.m[0][0] = scale;
-    m.m[1][1] = scale;
-    m.m[2][2] = scale;
-    m.m[3][3] = 1.0f;
+    m._11 = scale;
+    m._22 = scale;
+    m._33 = scale;
+    m._44 = 1.0f;
     return m;
 }
 
@@ -376,6 +375,18 @@ M4f m4f_orthographic(float left, float right, float bottom, float top, float nea
     return m;
 }
 
+M2f m2f_invert(M2f m)
+{
+    float det = m._11 * m._22 - m._12 * m._21;
+    float id = 1.0f/det;
+    M2f result;
+    result._11 =  m._22 * id;
+    result._12 = -m._12 * id;
+    result._21 = -m._21 * id;
+    result._22 =  m._11 * id;
+    return result;
+}
+
 void draw_text(Dynamic_Font* font, float x, float y, float size, char* text)
 {
     size_t len = strlen(text);
@@ -383,11 +394,20 @@ void draw_text(Dynamic_Font* font, float x, float y, float size, char* text)
     Slug_Vertex* verticies = calloc(len * VERTECIES_PER_GLYPH, sizeof(Slug_Vertex));
 
     int32_t vertex_count = 0;
-    float cursor = x;
+    float cursor = 0;
 
     float n = 0.70710678f;
 
     float scale = font->em_scale * size;
+
+    M4f model = m4f_translate(x, y, 1.0);//m4f_mul(m4f_translate(x, y, 1.0), m4f_scale(scale));
+    M2f jac;
+    jac._11 = model._11;
+    jac._12 = model._12;
+    jac._21 = model._21;
+    jac._22 = model._22;
+    jac = m2f_invert(jac);
+
     for (size_t j = 0;j < len;++j)
     {
         char c = text[j];
@@ -407,8 +427,8 @@ void draw_text(Dynamic_Font* font, float x, float y, float size, char* text)
 
         float ox1 = ex1 * scale + cursor;
         float ox2 = ex2 * scale + cursor;
-        float oy1 = ey1 * scale + y;
-        float oy2 = ey2 * scale + y;
+        float oy1 = ey1 * scale;
+        float oy2 = ey2 * scale;
 
         Convert_Float_U32 packed_loc;
         Convert_Float_U32 packed_band_info;
@@ -434,8 +454,8 @@ void draw_text(Dynamic_Font* font, float x, float y, float size, char* text)
             v->tex_y = ems_y[i];
             v->packed_loc = packed_loc.f;
             v->max_band_indecies = packed_band_info.f;
-            v->jac_00 = 1.0f; v->jac_01 = 0.0f;
-            v->jac_10 = 0.0f; v->jac_11 = 1.0f;
+            v->jac_00 = jac._11; v->jac_01 = jac._12;
+            v->jac_10 = jac._21; v->jac_11 = jac._22;
             v->band_scale_x = ((float)gl.x2 - (float)gl.x1) / (float)gl.band_count;
             v->band_scale_y = ((float)gl.y2 - (float)gl.y1) / (float)gl.band_count;
             v->band_offset_x = (float)gl.x1;
@@ -447,14 +467,14 @@ void draw_text(Dynamic_Font* font, float x, float y, float size, char* text)
         cursor += (float)gl.advance * scale;
     }
 
-    M4f model = m4f_mul(m4f_translate(x, y, 0.0f), m4f_scale(scale));
 
-    M4f projection = m4f_orthographic(0.0f, WINDOW_WIDTH, 0.0f, WINDOW_HEIGHT, 0.1f, 100.0f);
+    M4f projection = m4f_orthographic(0.0f, WINDOW_WIDTH, 0.0f, WINDOW_HEIGHT, -1.0f, 1.0f);
 
-    M4f mvp = projection;//m4f_mul(model, projection);
+    M4f mvp = m4f_mul(projection, model);
     V2f viewport = (V2f){{WINDOW_WIDTH, WINDOW_HEIGHT}};
     glUseProgram(font->shader);
-    glUniformMatrix4fv(glGetUniformLocation(font->shader, "mvp"), 1, false, mvp.c);
+    //glUniformMatrix4fv(glGetUniformLocation(font->shader, "mvp"), 1, false, mvp.c);
+    glUniform4fv(glGetUniformLocation(font->shader, "mvp"), 4, mvp.c);
     glUniform2fv(glGetUniformLocation(font->shader, "viewport"), 1, viewport.c);
 
     glActiveTexture(GL_TEXTURE0);
@@ -489,6 +509,8 @@ int main(void)
         return 1;
     }
 
+    RGFW_window_swapInterval_OpenGL(window, 1);
+
     if (!gladLoadGLLoader((GLADloadproc)RGFW_getProcAddress_OpenGL))
     {
         fprintf(stderr, "Coult not load opengl\n");
@@ -499,8 +521,9 @@ int main(void)
     assert(f != NULL);
     Bytes file = try_read_entire_file(f);
     assert(file.data);
+    fclose(f);
     Dynamic_Font df = {0};
-    load_dynamic_font(&df, file);
+    if (!load_dynamic_font(&df, file)) return 1;
 
     free(file.data);
 
