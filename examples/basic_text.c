@@ -4,16 +4,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #define LA_IMPLEMENTATION
-#include "la.h"
+#include "external/la.h"
 
-#include "glad.h"
+#include "external/glad.h"
 #define RGFW_OPENGL
 #define RGFW_IMPLEMENTATION
-#include "RGFW.h"
+#include "external/RGFW.h"
 
 
 #define HT_IMPLEMENTATION
-#include "ht.h"
+#include "external/ht.h"
 
 
 #define MAX_TEXT 128
@@ -547,4 +547,4 @@ int main(void)
     return 0;
 }
 
-#include "glad.c"
+#include "external/glad.c"
