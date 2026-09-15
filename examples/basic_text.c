@@ -460,7 +460,7 @@ void draw_text(Dynamic_Font* font, float x, float y, float size, char* text)
             v->band_scale_y = ((float)gl.y2 - (float)gl.y1) / (float)gl.band_count;
             v->band_offset_x = (float)gl.x1;
             v->band_offset_y = (float)gl.y1;
-            v->r = 1.0f; v->g = 1.0f; v->b = 1.0f; v->a = 1.0f;
+            v->r = 0.8f; v->g = 0.3f; v->b = 0.3f; v->a = 1.0f;
             vertex_count += 1;
         }
 
@@ -516,6 +516,10 @@ int main(void)
         fprintf(stderr, "Coult not load opengl\n");
         return 1;
     }
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
 
     FILE* f = fopen("opensans.lslg", "rb");
     assert(f != NULL);
