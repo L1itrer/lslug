@@ -537,7 +537,7 @@ int main(void)
         glClearColor(0.0, 0.0, 0.0, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        //draw_text(&rd, &font, 90, 100, 50.0, "0123456789");
+        //draw_text(&df, 90, 250, 400.0f, "q");
         draw_text(&df, 90, 250, 150.0f, "Hello World!");
         draw_text(&df, 90, 250 - 25.0f, 25.0f, "A complete success");
         draw_text(&df, 90, 250 - 25.0f - 50.0f, 50.0f, "QC");

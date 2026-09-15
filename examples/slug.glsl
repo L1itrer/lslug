@@ -204,7 +204,7 @@ float slug_render(vec2 em_render_coord, ivec4 glyph, vec4 band_transform)
 
         uint code = calc_root_code(p1.y, p2.y, p3.y);
 
-        if ((code & 1U) != 0U)
+        if (code != 0U)
         {
             vec2 r = solve_horiz_poly(p1, p2, p3) * pixels_per_em.x;
 
