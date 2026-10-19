@@ -199,7 +199,7 @@ bool shader_compile(uint32_t* return_shader, const char* path)
 
     snprintf(buffer, buffer_size, "#version 330 core\n#define VERTEX_SHADER 1\n%.*s", (int)data.count, data.data);
     uint32_t frag = 0, vert = 0;
-    
+
     bool vok = shader_compile_specific(&vert, buffer, GL_VERTEX_SHADER);
     memset(buffer, 0, buffer_size);
     snprintf(buffer, buffer_size, "#version 330 core\n#define FRAGMENT_SHADER 1\n%.*s", (int)data.count, data.data);
@@ -293,7 +293,7 @@ bool load_dynamic_font(Dynamic_Font* font, Bytes lslug)
         bands[i] = u16_deserialize(lslug, &cursor);
     }
 
-    bool ok = shader_compile(&font->shader, "slug.glsl");
+    bool ok = shader_compile(&font->shader, "./assets/shaders/slug.glsl");
     if (ok)
     {
         glUseProgram(font->shader);
@@ -387,7 +387,7 @@ M2f m2f_invert(M2f m)
     return result;
 }
 
-void draw_text(Dynamic_Font* font, float x, float y, float size, char* text)
+void draw_text(Dynamic_Font* font, float x, float y, float size, float r, float g, float b, char* text)
 {
     size_t len = strlen(text);
 
@@ -460,7 +460,7 @@ void draw_text(Dynamic_Font* font, float x, float y, float size, char* text)
             v->band_scale_y = ((float)gl.y2 - (float)gl.y1) / (float)gl.band_count;
             v->band_offset_x = (float)gl.x1;
             v->band_offset_y = (float)gl.y1;
-            v->r = 0.8f; v->g = 0.3f; v->b = 0.3f; v->a = 1.0f;
+            v->r = r; v->g = g; v->b = b; v->a = 1.0f;
             vertex_count += 1;
         }
 
@@ -521,7 +521,7 @@ int main(void)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 
-    FILE* f = fopen("opensans.lslg", "rb");
+    FILE* f = fopen("./assets/fonts/opensans.lslg", "rb");
     assert(f != NULL);
     Bytes file = try_read_entire_file(f);
     assert(file.data);
@@ -541,10 +541,7 @@ int main(void)
         glClearColor(0.0, 0.0, 0.0, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        //draw_text(&df, 90, 250, 400.0f, "q");
-        draw_text(&df, 90, 250, 150.0f, "Hello World!");
-        draw_text(&df, 90, 250 - 25.0f, 25.0f, "A complete success");
-        draw_text(&df, 90, 250 - 25.0f - 50.0f, 50.0f, "QC");
+        draw_text(&df, 90, 250, 150.0f, 1.0f, 1.0f, 1.0f, "Hello World!");
 
         RGFW_window_swapBuffers_OpenGL(window);
     }

@@ -7,7 +7,7 @@ struct Vert_To_Frag {
 };
 
 //uniform mat4 mvp;
-uniform vec4 mvp[4];
+uniform vec4 mvp[4]; // unfortunately opengl uses column-major matrices
 uniform vec2 viewport;
 
 #if VERTEX_SHADER
