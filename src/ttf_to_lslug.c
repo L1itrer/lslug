@@ -50,7 +50,7 @@ Bytes try_read_entire_file(FILE* f)
     rewind(f);
     bytes.data = (uint8_t*)malloc(file_size);
     bytes.count = fread(bytes.data, 1, file_size, f);
-    assert((long long)bytes.count == file_size);
+    assert((long long)bytes.count == file_size)
     return bytes;
 }
 
