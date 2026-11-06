@@ -47,15 +47,15 @@ union Convert_Float_U32
     uint32_t u;
 };
 
-typedef struct Glyph Glyph;
-struct Glyph
+typedef struct Slug_Glyph Slug_Glyph;
+struct Slug_Glyph
 {
     int16_t band_loc_x, band_loc_y, band_count;
     int32_t x1, y1, x2, y2;
     int32_t advance, left_side_bearing;
 };
 
-typedef Ht(int32_t, Glyph) Glyphs;
+typedef Ht(int32_t, Slug_Glyph) Glyphs;
 
 typedef struct Dynamic_Font Dynamic_Font;
 struct Dynamic_Font
@@ -256,7 +256,7 @@ bool load_dynamic_font(Dynamic_Font* font, Bytes lslug)
     int32_t glyphs_count = i32_deserialize(lslug, &cursor);
     for (int32_t i = 0;i < glyphs_count;++i)
     {
-        Glyph gl = {0};
+        Slug_Glyph gl = {0};
         int32_t cp = i32_deserialize(lslug, &cursor);
         gl.x1 = i32_deserialize(lslug, &cursor);
         gl.y1 = i32_deserialize(lslug, &cursor);
@@ -327,6 +327,10 @@ bool load_dynamic_font(Dynamic_Font* font, Bytes lslug)
         glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(Slug_Vertex), (void*)(16 * sizeof(float)));
         glEnableVertexAttribArray(4);
         glUseProgram(0);
+    }
+    else
+    {
+        printf("Could not compile shaders!\n");
     }
     free(bands);
     free(curves);
@@ -411,9 +415,9 @@ void draw_text(Dynamic_Font* font, float x, float y, float size, float r, float 
     for (size_t j = 0;j < len;++j)
     {
         char c = text[j];
-        Glyph* gl_ptr = ht_find(&font->glyphs, c);
+        Slug_Glyph* gl_ptr = ht_find(&font->glyphs, c);
         if (gl_ptr == NULL) gl_ptr = ht_find(&font->glyphs, '?');
-        Glyph gl = *gl_ptr;
+        Slug_Glyph gl = *gl_ptr;
         if (c == ' ')
         {
             cursor += gl.advance * scale;

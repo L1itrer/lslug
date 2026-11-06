@@ -2,8 +2,8 @@ struct Vert_To_Frag {
     vec4 position; // clip-space vertex position
     vec4 color; // color
     vec2 texcoord; // em-space sample coords
-    flat vec4 banding; // scale and offset
-    flat ivec4 glyph; // data x coord, data y coord, band max x, band max y
+    vec4 banding; // scale and offset
+    ivec4 glyph; // data x coord, data y coord, band max x, band max y
 };
 
 //uniform mat4 mvp;
